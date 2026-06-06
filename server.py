@@ -226,6 +226,9 @@ def get_state():
     for n in sm.get_path_to_root(s):
         if n["id"] != "root" and n.get("answer"):
             path_qa.append({"question": n["user_input"], "answer": n["answer"]})
+    # 检测是否在引导模式
+    guided_active = bool(s.get("guided_tree") and s["guided_tree"].get("question"))
+
     return {
         "project":       s["project"],
         "current_node":  s["current_node"],
@@ -247,6 +250,7 @@ def get_state():
         "current_attachments": current_attachments,
         "generating":    cur.get("generating", False) and not (bool(cur.get("images")) or bool(cur.get("answer"))),
         "path_qa":       path_qa,
+        "guided_active": guided_active,
     }
 
 

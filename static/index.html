@@ -3082,10 +3082,10 @@ async function refreshState() {
   }
 
   // 恢复生成按钮状态（如果当前节点正在生成）
-  // 前端防御：如果当前节点已有内容，不应视为生成中
+  // 引导模式下忽略 legacy 的 generating 标记
   const curImages = s.current_images || [];
   const curAnswer = (s.current_answer || '').trim();
-  const reallyGenerating = s.generating && curImages.length === 0 && !curAnswer;
+  const reallyGenerating = !guidedMode && s.generating && curImages.length === 0 && !curAnswer;
   const btn = document.getElementById('sendBtn');
   if (reallyGenerating && !isGenerating) {
     isGenerating = true;
@@ -3907,14 +3907,70 @@ async function loadSession(path, silent = false) {
     throw new Error('加载失败');
   }
   qaList = [];  // 清空问答记录
-  guidedMode = false;  // 加载已有项目时切换到自由对话模式
-  guidedAnswers = [];
-  guidedIsResult = false;
-  guidedTree = null;
-  const guidedTreeContainer = document.getElementById('guidedTreeContainer');
-  const legacyTreeSection = document.getElementById('legacyTreeSection');
-  if (guidedTreeContainer) guidedTreeContainer.style.display = 'none';
-  if (legacyTreeSection) legacyTreeSection.style.display = '';
+
+  // 先获取一次state来检测是否在引导模式
+  const stateRes = await fetch('/api/project/state');
+  if (stateRes.ok) {
+    const st = await stateRes.json();
+    if (st.guided_active) {
+      // 引导模式：恢复引导状态
+      guidedMode = true;
+      guidedIsResult = false;
+      guidedAnswers = [];
+      guidedTree = null;
+      // 从后端树重建guidedAnswers
+      const treeRes = await fetch('/api/guided/tree');
+      if (treeRes.ok) {
+        const treeData = await treeRes.json();
+        if (treeData.tree) {
+          guidedTree = treeData.tree;
+          _rebuildAnswersFromTree(guidedTree);
+          guidedAIStep = guidedAnswers.length;
+          renderGuidedTree();
+        }
+      }
+      // 重建对话显示
+      const guidedTreeContainer = document.getElementById('guidedTreeContainer');
+      const legacyTreeSection = document.getElementById('legacyTreeSection');
+      if (guidedTreeContainer) guidedTreeContainer.style.display = '';
+      if (legacyTreeSection) legacyTreeSection.style.display = 'none';
+
+      // 显示当前叶子节点的问题
+      if (guidedTree) {
+        // 找当前叶子节点
+        let leaf = guidedTree;
+        while (leaf.children && leaf.children.length > 0) {
+          // 找选中的选项
+          const selOpt = leaf.children.find(c => c.type === 'option' && c.selected);
+          if (selOpt && selOpt.children && selOpt.children.length > 0) {
+            leaf = selOpt.children[0]; // 下一题
+          } else if (leaf.multi_next) {
+            leaf = leaf.multi_next;
+          } else {
+            break;
+          }
+        }
+        guidedCurrentNodeId = leaf.id || '';
+        showGuidedQuestion(leaf.label || '', leaf.options || [], 'select_or_text', leaf.multi_select || false, leaf.max_select || 1);
+      }
+    } else {
+      // 非引导模式
+      guidedMode = false;
+      guidedAnswers = [];
+      guidedIsResult = false;
+      guidedTree = null;
+      const guidedTreeContainer = document.getElementById('guidedTreeContainer');
+      const legacyTreeSection = document.getElementById('legacyTreeSection');
+      if (guidedTreeContainer) guidedTreeContainer.style.display = 'none';
+      if (legacyTreeSection) legacyTreeSection.style.display = '';
+    }
+  } else {
+    guidedMode = false;
+    guidedAnswers = [];
+    guidedIsResult = false;
+    guidedTree = null;
+  }
+
   await refreshState();
   if (!silent) toast('项目已加载');
 }
