@@ -223,6 +223,10 @@ def load_project(path: str = Form(...)):
         raise HTTPException(400, str(e))
     return {"ok": True, "project": session["project"]}
 
+@app.get("/healthz")
+def health_check():
+    return {"status": "ok"}
+
 @app.get("/api/project/list")
 def list_projects():
     client_id = _client_id_var.get()
