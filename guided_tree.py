@@ -65,8 +65,11 @@ def build_user_profile(answers: list[dict]) -> str:
     return "\n".join(parts)
 
 
-def build_tree_for_ui(tree: dict) -> dict:
+def build_tree_for_ui(tree: dict, free_chat_qa: list = None) -> dict:
     """将后端树结构转换为前端可渲染的树结构（选项作为独立子节点）
+
+    free_chat_qa: 继续追问的自由对话QA列表 [{"question":"...","answer":"..."}, ...]
+                  会作为叶子节点下的子节点追加到树中。
 
     前端树结构:
       Question Node:
@@ -88,6 +91,20 @@ def build_tree_for_ui(tree: dict) -> dict:
           "is_custom": True/False,          # 是否为用户自定义输入
           "question_id": "...",             # 父问题节点ID（用于分支）
           "children": [Question Node, ...]  # 选中后展开的下一题
+        }
+
+      FreeChatQA Node (type="free_chat_qa"):
+        {
+          "id": "...", "type": "free_chat_qa",
+          "label": "问题文本",
+          "answer": "回答文本",
+          "is_current": True/False
+        }
+
+      FreeChatSeparator Node (type="free_chat_separator"):
+        {
+          "id": "...", "type": "free_chat_separator",
+          "label": "继续追问"
         }
     """
     if not tree:
@@ -167,7 +184,101 @@ def build_tree_for_ui(tree: dict) -> dict:
 
     # 找到当前叶子节点ID
     leaf_id = _find_current_leaf_id(tree)
-    return _convert(tree, leaf_id)
+    ui_tree = _convert(tree, leaf_id)
+
+    # 如果有自由对话QA，追加到叶子节点下
+    if free_chat_qa and ui_tree:
+        _append_free_chat_qa(ui_tree, free_chat_qa)
+
+    return ui_tree
+
+
+def _append_free_chat_qa(ui_tree: dict, free_chat_qa: list) -> None:
+    """将自由对话QA作为子节点追加到UI树的叶子节点下
+
+    找到最深的叶子选项节点，在其children中追加：
+    1. "继续追问"分隔节点
+    2. 每个QA对作为一个 free_chat_qa 类型的节点
+    """
+    leaf_option = _find_leaf_option_node(ui_tree)
+    if not leaf_option:
+        # 没有选中选项的叶子，直接挂在question节点上
+        leaf_question = _find_leaf_question_node(ui_tree)
+        if not leaf_question:
+            return
+        _attach_free_chat_to_node(leaf_question, free_chat_qa)
+    else:
+        _attach_free_chat_to_node(leaf_option, free_chat_qa)
+
+
+def _find_leaf_option_node(node: dict) -> dict:
+    """找到叶子节点的最后一个选中选项节点（沿着选中路径走到底）"""
+    if node.get("type") == "option":
+        if node.get("selected") and node.get("children"):
+            for child in node["children"]:
+                deeper = _find_leaf_option_node(child)
+                if deeper:
+                    return deeper
+        if node.get("selected"):
+            return node
+        return None
+
+    if node.get("type") == "question":
+        if node.get("children"):
+            for child in node["children"]:
+                if child.get("type") == "option" and child.get("selected"):
+                    deeper = _find_leaf_option_node(child)
+                    if deeper:
+                        return deeper
+        if node.get("multi_next"):
+            deeper = _find_leaf_option_node(node["multi_next"])
+            if deeper:
+                return deeper
+    return None
+
+
+def _find_leaf_question_node(node: dict) -> dict:
+    """找到最深的叶子问题节点"""
+    if node.get("type") == "question":
+        if node.get("children"):
+            for child in node["children"]:
+                if child.get("type") == "option" and child.get("selected"):
+                    if child.get("children"):
+                        for sub in child["children"]:
+                            deeper = _find_leaf_question_node(sub)
+                            if deeper:
+                                return deeper
+        if node.get("multi_next"):
+            deeper = _find_leaf_question_node(node["multi_next"])
+            if deeper:
+                return deeper
+        return node
+    return None
+
+
+def _attach_free_chat_to_node(node: dict, free_chat_qa: list) -> None:
+    """在指定节点的children中追加自由对话QA节点"""
+    if "children" not in node:
+        node["children"] = []
+
+    # 追加"继续追问"分隔节点
+    sep_node = {
+        "id": "free_chat_separator",
+        "type": "free_chat_separator",
+        "label": "继续追问",
+    }
+    node["children"].append(sep_node)
+
+    # 追加每个QA对
+    for i, qa in enumerate(free_chat_qa):
+        qa_node = {
+            "id": f"free_chat_qa_{i}",
+            "type": "free_chat_qa",
+            "label": qa.get("question", ""),
+            "answer": qa.get("answer", ""),
+            "is_current": (i == len(free_chat_qa) - 1),
+        }
+        node["children"].append(qa_node)
 
 
 def _find_current_leaf_id(node: dict) -> str:

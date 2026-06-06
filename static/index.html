@@ -256,6 +256,15 @@ body.resizing { cursor: col-resize; user-select: none; }
 .guided-text-input input:focus {
   border-color: var(--accent); outline: none;
 }
+.guided-voice-btn {
+  width: 36px; height: 36px; border-radius: 8px; border: 1px solid var(--line2);
+  background: var(--bg4); color: var(--text); font-size: 16px; cursor: pointer;
+  transition: all 0.2s; flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+}
+.guided-voice-btn:hover { background: var(--acl); border-color: var(--accent); }
+.guided-voice-btn.recording { background: var(--red); color: #fff; border-color: var(--red); }
+/* 引导模式下隐藏底部输入栏 */
+body.guided-active .footer { display: none !important; }
 /* ── Guided Sidebar Tree ─────────────────────── */
 .gtree-node { margin-left: 0; }
 .gtree-node .gtree-node { margin-left: 14px; }
@@ -926,7 +935,7 @@ textarea#userInput::placeholder { color: var(--dim); }
 * { scrollbar-width: thin; scrollbar-color: var(--bg4) transparent; }
 </style>
 </head>
-<body>
+<body class="guided-active">
 
 <div class="app">
   <div class="titlebar">
@@ -1268,6 +1277,44 @@ textarea#userInput::placeholder { color: var(--dim); }
 
 <script>
 // ── State ────────────────────────────────────
+// 多用户隔离：每个浏览器标签页生成唯一客户端ID
+// 使用sessionStorage确保每个标签页有独立ID，同一标签页刷新后保持
+let clientId = sessionStorage.getItem('offertree_client_id');
+if (!clientId) {
+  clientId = 'client_' + Math.random().toString(36).substr(2, 9) + '_' + Date.now();
+  sessionStorage.setItem('offertree_client_id', clientId);
+}
+
+// 拦截所有fetch请求，自动附加X-Client-ID头
+const _originalFetch = window.fetch;
+window.fetch = function(url, options = {}) {
+  if (!options.headers) {
+    options.headers = {};
+  }
+  if (options.headers instanceof Headers) {
+    options.headers.set('X-Client-ID', clientId);
+  } else if (typeof options.headers === 'object') {
+    options.headers['X-Client-ID'] = clientId;
+  }
+  return _originalFetch(url, options);
+};
+
+// 自动滚底：滚动实际滚动容器.img-area
+function scrollChatToBottom(force) {
+  const imgArea = document.querySelector('.img-area');
+  if (!imgArea) return;
+  if (force) {
+    imgArea.scrollTop = imgArea.scrollHeight;
+    return;
+  }
+  // 智能滚动：仅在用户接近底部时自动滚动（流式输出时使用）
+  const threshold = 150;
+  const nearBottom = imgArea.scrollHeight - imgArea.scrollTop - imgArea.clientHeight < threshold;
+  if (nearBottom) {
+    imgArea.scrollTop = imgArea.scrollHeight;
+  }
+}
+
 let currentN = 1;
 let currentGridClass = 'g1';
 let imageMode = false;  // false=文字模式(默认), true=图片模式
@@ -1295,6 +1342,7 @@ let guidedAnswers = [];      // [{question, answer}] 用户回答记录
 let guidedIsResult = false;  // 是否已到达匹配结果
 let guidedAIStep = 0;        // AI动态提问的步数
 let guidedTree = null;       // 前端引导树数据
+let showGuidedTree = false;  // 自由对话模式下仍显示引导树（"继续追问"后）
 
 // ── 引导式对话渲染 ──────────────────────────────
 
@@ -1321,7 +1369,7 @@ function renderGuidedChat() {
   }
 
   grid.innerHTML = html;
-  grid.scrollTop = grid.scrollHeight;
+  scrollChatToBottom(true);
 }
 
 function showGuidedQuestion(question, options, inputType, multiSelect, maxSelect) {
@@ -1377,6 +1425,7 @@ function showGuidedQuestion(question, options, inputType, multiSelect, maxSelect
       : 'flex:1;padding:8px 12px;border-radius:6px;border:1px solid var(--line2);background:var(--bg3);color:var(--text);font-size:13px;font-family:var(--sans);outline:none';
     html += `<div class="guided-text-input">
       <div style="display:flex;gap:6px;margin-top:8px">
+        <button onclick="startGuidedVoiceInput()" id="guidedVoiceBtn" class="guided-voice-btn" title="语音输入">🎙</button>
         <input type="text" id="guidedTextInput" placeholder="${placeholder}"
           style="${inputStyle}"
           onkeydown="if(event.key==='Enter'){submitGuidedText()}" />
@@ -1397,7 +1446,7 @@ function showGuidedQuestion(question, options, inputType, multiSelect, maxSelect
   html += `</div>`;
 
   grid.innerHTML = html;
-  grid.scrollTop = grid.scrollHeight;
+  scrollChatToBottom(true);
 }
 
 function showGuidedResultStreaming(partialText) {
@@ -1427,13 +1476,12 @@ function showGuidedResultStreaming(partialText) {
     <div class="guided-ai-label"><i class="ti ti-robot"></i> 匹配结果</div>
     <div class="guided-result-text">${renderMarkdown(partialText)}<span class="cursor-blink"></span></div>
     <div class="guided-result-actions" style="margin-top:12px;display:none">
-      <button onclick="restartGuided()" class="guided-opt-btn" style="margin-right:6px">🔄 重新匹配</button>
-      <button onclick="goToResumeTab()" class="guided-opt-btn" style="background:var(--accent);color:#000;font-weight:600">📝 评估简历</button>
+      <button onclick="continueChat()" class="guided-opt-btn" style="background:var(--accent);color:#000;font-weight:600">💬 继续追问</button>
     </div>
   </div>`;
 
   grid.innerHTML = html;
-  grid.scrollTop = grid.scrollHeight;
+  scrollChatToBottom();  // 流式输出：智能滚动
 }
 
 function showGuidedResultFinal(text) {
@@ -1461,14 +1509,12 @@ function showGuidedResultFinal(text) {
     <div class="guided-ai-label"><i class="ti ti-robot"></i> 匹配结果</div>
     <div class="guided-result-text">${renderMarkdown(text)}</div>
     <div class="guided-result-actions" style="margin-top:12px">
-      <button onclick="restartGuided()" class="guided-opt-btn" style="margin-right:6px">🔄 重新匹配</button>
-      <button onclick="goToResumeTab()" class="guided-opt-btn" style="background:var(--accent);color:#000;font-weight:600">📝 评估简历</button>
-      <button onclick="continueChat()" class="guided-opt-btn" style="margin-left:6px">💬 继续追问</button>
+      <button onclick="continueChat()" class="guided-opt-btn" style="background:var(--accent);color:#000;font-weight:600">💬 继续追问</button>
     </div>
   </div>`;
 
   grid.innerHTML = html;
-  grid.scrollTop = grid.scrollHeight;
+  scrollChatToBottom(true);
 }
 
 // 多选逻辑
@@ -1598,15 +1644,110 @@ async function submitGuidedText() {
   await selectGuidedOption(text);
 }
 
+// 引导模式语音输入
+let guidedRecognition = null;
+let guidedIsRecording = false;
+
+async function startGuidedVoiceInput() {
+  const btn = document.getElementById('guidedVoiceBtn');
+  const input = document.getElementById('guidedTextInput');
+
+  if (!guidedIsRecording) {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      toast('浏览器不支持语音识别，请使用Chrome');
+      return;
+    }
+
+    try {
+      guidedRecognition = new SpeechRecognition();
+      guidedRecognition.lang = 'zh-CN';
+      guidedRecognition.continuous = true;
+      guidedRecognition.interimResults = true;
+
+      let voiceText = input.value || '';
+      if (voiceText && !voiceText.endsWith(' ')) {
+        voiceText += ' ';
+      }
+
+      guidedRecognition.onresult = (event) => {
+        let interimTranscript = '';
+        let finalTranscript = '';
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const transcript = event.results[i][0].transcript;
+          if (event.results[i].isFinal) {
+            finalTranscript += transcript;
+          } else {
+            interimTranscript += transcript;
+          }
+        }
+        if (finalTranscript) {
+          voiceText += finalTranscript + ' ';
+        }
+        input.value = voiceText + interimTranscript;
+      };
+
+      guidedRecognition.onerror = (event) => {
+        if (event.error === 'not-allowed') {
+          toast('请允许麦克风权限');
+          stopGuidedVoiceInput();
+        }
+      };
+
+      let retryCount = 0;
+      guidedRecognition.onend = () => {
+        if (guidedIsRecording) {
+          retryCount++;
+          if (retryCount <= 3) {
+            try { guidedRecognition.start(); } catch(e) {}
+          } else {
+            stopGuidedVoiceInput();
+          }
+        }
+      };
+
+      guidedRecognition.start();
+      guidedIsRecording = true;
+      btn.classList.add('recording');
+      btn.textContent = '⏹';
+      input.focus();
+      toast('🎤 正在听...');
+    } catch (err) {
+      toast('无法启动语音识别: ' + err.message);
+    }
+  } else {
+    stopGuidedVoiceInput();
+  }
+}
+
+function stopGuidedVoiceInput() {
+  const btn = document.getElementById('guidedVoiceBtn');
+  const input = document.getElementById('guidedTextInput');
+  if (guidedRecognition) {
+    guidedIsRecording = false;
+    guidedRecognition.stop();
+    guidedRecognition = null;
+  }
+  if (btn) {
+    btn.classList.remove('recording');
+    btn.textContent = '🎙';
+  }
+  if (input) {
+    input.value = input.value.trim();
+  }
+}
+
 async function startGuidedFlow() {
   // 重置状态
   guidedMode = true;
-  guidedStep = 0;
-  guidedAnswers = [];
   guidedIsResult = false;
+  showGuidedTree = false;
+  guidedAnswers = [];
   guidedAIStep = 0;
   guidedTree = null;
+  window._savedMatchResult = '';
   _multiSelected.clear();
+  document.body.classList.add('guided-active');
 
   const btn = document.getElementById('sendBtn');
   btn.disabled = true;
@@ -1648,8 +1789,10 @@ function restartGuided() {
   guidedAnswers = [];
   guidedStep = 0;
   guidedIsResult = false;
+  showGuidedTree = false;
   guidedAIStep = 0;
   guidedTree = null;
+  window._savedMatchResult = '';
   startGuidedFlow();
 }
 
@@ -1679,6 +1822,11 @@ function renderGuidedTree() {
 
   container.innerHTML = '';
   _renderTreeNode(container, guidedTree);
+
+  // 在"继续追问"模式下，把自由对话的QA也追加到树上
+  if (showGuidedTree && qaList.length > 0) {
+    _renderFreeChatOnTree(container);
+  }
 }
 
 function _renderTreeNode(container, node, isCompact) {
@@ -1709,10 +1857,14 @@ function _renderQuestionNode(container, node) {
       ${label ? `<span class="gtree-q">${escapeHtml(label)}</span>` : ''}
     </div>`;
 
-  // 点击问题节点 → 导航回该问题
+  // 点击问题节点 → 只读查看（不回溯，不显示输入框）
   row.onclick = () => {
-    if (node.is_current) return;
-    _navigateToTreeNode(node);
+    if (node.is_current) {
+      // 点击当前节点：恢复到当前问答视图
+      _restoreCurrentGuidedView();
+      return;
+    }
+    _viewTreeNode(node);
   };
 
   div.appendChild(row);
@@ -1770,6 +1922,35 @@ function _renderOptionNode(container, node, isCompact) {
   }
 
   container.appendChild(div);
+}
+
+function _renderFreeChatOnTree(container) {
+  // 在引导树末尾追加自由对话的QA节点
+  if (!qaList || qaList.length === 0) return;
+
+  // 分隔线
+  const sep = document.createElement('div');
+  sep.className = 'gtree-node';
+  sep.innerHTML = `<div class="gtree-row" style="opacity:0.5"><div class="gtree-dot on-path" style="background:var(--accent)"></div><div class="gtree-label"><span style="font-size:10px;color:var(--accent);font-weight:600">继续追问</span></div></div>`;
+  container.appendChild(sep);
+
+  qaList.forEach((qa, i) => {
+    // 问题节点
+    const qNode = document.createElement('div');
+    qNode.className = 'gtree-node';
+    const qText = (qa.question || '').length > 40 ? qa.question.slice(0, 40) + '…' : (qa.question || '');
+    qNode.innerHTML = `<div class="gtree-row"><div class="gtree-dot current"></div><div class="gtree-label"><span class="gtree-q">${escapeHtml(qText)}</span></div></div>`;
+    container.appendChild(qNode);
+
+    // 回答节点（折叠显示）
+    if (qa.answer) {
+      const aNode = document.createElement('div');
+      aNode.className = 'gtree-node';
+      const aText = qa.answer.length > 50 ? qa.answer.slice(0, 50) + '…' : qa.answer;
+      aNode.innerHTML = `<div class="gtree-row"><div class="gtree-dot selected" style="background:var(--muted);border-color:var(--muted)"></div><div class="gtree-label"><span class="gtree-opt-text" style="color:var(--muted);font-size:11px">${escapeHtml(aText)}</span></div></div>`;
+      container.appendChild(aNode);
+    }
+  });
 }
 
 async function _navigateToTreeNode(node) {
@@ -1881,7 +2062,7 @@ function _rebuildAnswersFromTree(node) {
   if (!node.multi_select && node.children) {
     const selOpt = node.children.find(c => c.type === 'option' && c.selected);
     if (q && selOpt) {
-      guidedAnswers.push({ question: q, answer: selOpt.label });
+      guidedAnswers.push({ question: q, answer: selOpt.label, node_id: node.id });
       // 递归选项的子节点（下一题）
       if (selOpt.children && selOpt.children.length > 0) {
         selOpt.children.forEach(child => _rebuildAnswersFromTree(child));
@@ -1890,31 +2071,185 @@ function _rebuildAnswersFromTree(node) {
   }
   // 多选：用selected_option（组合文本）
   if (node.multi_select && node.selected_option && q) {
-    guidedAnswers.push({ question: q, answer: node.selected_option });
+    guidedAnswers.push({ question: q, answer: node.selected_option, node_id: node.id });
     if (node.multi_next) {
       _rebuildAnswersFromTree(node.multi_next);
     }
   }
 }
 
-function goToResumeTab() {
-  // 切换到简历评估标签页
-  const resumeTab = document.querySelector('.stab[onclick*="tabResume"]');
-  if (resumeTab) switchTab(resumeTab, 'tabResume');
+// 在引导树中根据nodeId查找节点
+function _findNodeInGuidedTree(nodeId, node) {
+  if (!node) return null;
+  if (node.id === nodeId) return node;
+  if (node.children) {
+    for (const child of node.children) {
+      const found = _findNodeInGuidedTree(nodeId, child);
+      if (found) return found;
+    }
+  }
+  if (node.multi_next) {
+    const found = _findNodeInGuidedTree(nodeId, node.multi_next);
+    if (found) return found;
+  }
+  return null;
+}
+
+// 获取从根到目标节点路径上的问答（只读查看用）
+function _getAnswersUpToNode(targetNodeId, node, answers) {
+  if (!node || node.type !== 'question') return false;
+  if (node.id === targetNodeId) {
+    // 目标节点：如果有答案则显示答案，否则标记为is_target
+    const ans = _getNodeAnswer(node);
+    answers.push({ question: node.label || '', answer: ans, node_id: node.id, is_target: !ans });
+    return true;
+  }
+  const q = node.label || '';
+  // 单选
+  if (!node.multi_select && node.children) {
+    const selOpt = node.children.find(c => c.type === 'option' && c.selected);
+    if (q && selOpt) {
+      answers.push({ question: q, answer: selOpt.label, node_id: node.id });
+      if (selOpt.children && selOpt.children.length > 0) {
+        for (const child of selOpt.children) {
+          if (_getAnswersUpToNode(targetNodeId, child, answers)) return true;
+        }
+      }
+    }
+  }
+  // 多选
+  if (node.multi_select && node.selected_option && q) {
+    answers.push({ question: q, answer: node.selected_option, node_id: node.id });
+    if (node.multi_next) {
+      if (_getAnswersUpToNode(targetNodeId, node.multi_next, answers)) return true;
+    }
+  }
+  // 如果没有匹配，回退这条路径
+  if (answers.length > 0 && answers[answers.length - 1].node_id === node.id) {
+    answers.pop();
+  }
+  return false;
+}
+
+// 获取节点已选中的答案文本
+function _getNodeAnswer(node) {
+  if (!node) return '';
+  if (node.multi_select && node.selected_option) return node.selected_option;
+  if (!node.multi_select && node.children) {
+    const selOpt = node.children.find(c => c.type === 'option' && c.selected);
+    if (selOpt) return selOpt.label;
+  }
+  return '';
+}
+
+// 只读查看某个中间节点（不回溯，不显示输入框）
+function showGuidedNodeReadonly(answers, targetNodeId, question) {
+  const grid = document.getElementById('imgGrid');
+  grid.className = 'text-display guided-chat';
+
+  let html = '';
+  // 欢迎消息
+  html += `<div class="guided-q-block guided-welcome">
+    <div class="guided-q-text">你好，我是 OfferTree，咨询求职问题，欢迎提问！</div>
+  </div>`;
+
+  // 渲染路径上的问答
+  for (let i = 0; i < answers.length; i++) {
+    const ga = answers[i];
+    const isTarget = (ga.node_id === targetNodeId);
+    html += `<div class="guided-q-block ${isTarget ? 'guided-current' : ''}" id="guided-node-${ga.node_id}" ${isTarget ? 'style="opacity:0.85"' : ''}>
+      <div class="guided-q-text">${escapeHtml(ga.question)}</div>
+      ${isTarget ? `<div style="margin-top:6px;padding:4px 8px;border-radius:4px;background:var(--acl);font-size:10px;color:var(--accent);display:inline-block">
+        <i class="ti ti-eye" style="font-size:11px"></i> 查看模式
+      </div>` : ''}
+    </div>`;
+    if (ga.answer) {
+      html += `<div class="guided-a-block">
+        <div class="guided-a-text">${escapeHtml(ga.answer)}</div>
+      </div>`;
+    }
+    // 在目标节点处添加"重新回答"按钮（仅在引导模式下）
+    if (isTarget && guidedMode) {
+      html += `<div style="margin-left:16px;margin-bottom:8px">
+        <button class="guided-opt-btn" onclick="_navigateToTreeNodeById('${ga.node_id}')" style="background:var(--accent);color:#000;font-weight:600;font-size:11px">
+          ✏️ 重新回答此问题
+        </button>
+      </div>`;
+    }
+  }
+
+  grid.innerHTML = html;
+  scrollChatToBottom(true);
+}
+
+// 点击中间节点：只读查看（不回溯）
+function _viewTreeNode(node) {
+  if (!guidedTree) return;
+  const answers = [];
+  _getAnswersUpToNode(node.id, guidedTree, answers);
+  if (answers.length === 0) {
+    // 找不到路径，尝试直接用节点ID跳转（回退方案）
+    _navigateToTreeNode(node);
+    return;
+  }
+  const question = node.label || '';
+  showGuidedNodeReadonly(answers, node.id, question);
+}
+
+// 通过nodeId导航到节点（重新回答）
+async function _navigateToTreeNodeById(nodeId) {
+  if (!guidedTree) return;
+  const node = _findNodeInGuidedTree(nodeId, guidedTree);
+  if (node) {
+    await _navigateToTreeNode(node);
+  }
+}
+
+// 恢复到当前问答视图（从只读查看模式切回）
+function _restoreCurrentGuidedView() {
+  if (!guidedTree) return;
+  if (showGuidedTree && !guidedMode) {
+    // 自由对话模式：恢复引导历史+自由对话QA
+    renderQaDisplay(false);
+  } else if (guidedIsResult && window._savedMatchResult) {
+    showGuidedResultFinal(window._savedMatchResult);
+  } else if (guidedIsResult) {
+    return;
+  } else {
+    const currentNode = guidedCurrentNodeId ? _findNodeInGuidedTree(guidedCurrentNodeId, guidedTree) : null;
+    if (currentNode) {
+      showGuidedQuestion(currentNode.label || '', currentNode.options || [], currentNode.input_type || 'select_or_text', currentNode.multi_select || false, currentNode.max_select || 1);
+    }
+  }
 }
 
 function continueChat() {
-  // 从引导模式切换到自由对话模式
+  // 从引导模式切换到自由对话模式，保留聊天记录
   guidedMode = false;
+  guidedIsResult = false;
+  showGuidedTree = true;
+  document.body.classList.remove('guided-active');
+
+  // 通知后端清除匹配结果标记
+  fetch('/api/guided/clear_result', { method: 'POST' }).catch(() => {});
+
+  // 保存匹配结果文本（供后续渲染引导历史）
+  // 从聊天区提取匹配结果
+  const resultEl = document.querySelector('.guided-result-text');
+  window._savedMatchResult = resultEl ? resultEl.textContent : '';
+
+  // qaList 用于自由对话，清空（引导问答已在guidedAnswers中）
   qaList = [];
-  const grid = document.getElementById('imgGrid');
-  grid.className = 'text-display';
-  showEmptyGrid();
-  // 切换侧边栏树
+
+  // 保持引导树可见，不切换到旧树
   const guidedTreeContainer = document.getElementById('guidedTreeContainer');
   const legacyTreeSection = document.getElementById('legacyTreeSection');
-  if (guidedTreeContainer) guidedTreeContainer.style.display = 'none';
-  if (legacyTreeSection) legacyTreeSection.style.display = '';
+  if (guidedTreeContainer) guidedTreeContainer.style.display = '';
+  if (legacyTreeSection) legacyTreeSection.style.display = 'none';
+
+  // 重新渲染聊天区（引导历史 + 空 qaList）
+  renderQaDisplay(false);
+
   toast('已切换到自由对话模式，你可以继续追问');
 }
 
@@ -1963,9 +2298,9 @@ async function finishGuided() {
 }
 
 // Persistence keys
-const STATE_KEY = 'archai_session_path';
+const STATE_KEY = 'archai_session_path_' + clientId;
 const CONFIG_KEY = 'archai_config';
-const INPUT_KEY = 'archai_input';
+const INPUT_KEY = 'archai_input_' + clientId;
 const MEMORY_KEY = 'archai_model_memory';
 const STYLE_KEY = 'archai_style_selection';
 
@@ -3032,10 +3367,10 @@ async function refreshState() {
   renderTree(s.tree, document.getElementById('treeContainer'));
   renderPathTags(s.path_tags);
 
-  // 引导模式：显示引导树，隐藏旧树；非引导模式：相反
+  // 引导模式或showGuidedTree：显示引导树，隐藏旧树；否则相反
   const guidedTreeContainer = document.getElementById('guidedTreeContainer');
   const legacyTreeSection = document.getElementById('legacyTreeSection');
-  if (guidedMode) {
+  if (guidedMode || showGuidedTree) {
     if (guidedTreeContainer) guidedTreeContainer.style.display = '';
     if (legacyTreeSection) legacyTreeSection.style.display = 'none';
     renderGuidedTree();
@@ -3222,8 +3557,8 @@ function toggleMode() {
 // ── Unified node content display ──────────────
 // 点击节点统一展示该节点的所有内容（图片+文字），与生成模式无关
 function renderCurrentNodeContent(s) {
-  // 引导模式下不覆盖聊天区
-  if (guidedMode && (guidedAnswers.length > 0 || guidedIsResult)) return;
+  // 引导模式或"继续追问"模式下不覆盖聊天区
+  if (guidedMode || showGuidedTree) return;
 
   const grid = document.getElementById('imgGrid');
   const images = s.current_images || [];
@@ -3291,18 +3626,48 @@ function renderCurrentNodeContent(s) {
   }
 
   grid.innerHTML = html;
-  grid.scrollTop = grid.scrollHeight;
+  scrollChatToBottom(true);
 }
 
 // ── Text display ─────────────────────────────
+// 生成引导历史部分的HTML（在"继续追问"模式下，自由对话之前显示）
+function _guidedHistoryHtml() {
+  let html = '';
+  html += `<div class="guided-q-block guided-welcome"><div class="guided-q-text">你好，我是 OfferTree，咨询求职问题，欢迎提问！</div></div>`;
+  for (let i = 0; i < guidedAnswers.length; i++) {
+    const ga = guidedAnswers[i];
+    html += `<div class="guided-q-block"><div class="guided-q-text">${escapeHtml(ga.question)}</div></div>`;
+    html += `<div class="guided-a-block"><div class="guided-a-text">${escapeHtml(ga.answer)}</div></div>`;
+  }
+  // 匹配结果
+  const matchResult = window._savedMatchResult || '';
+  if (matchResult) {
+    html += `<div class="guided-q-block guided-result">
+      <div class="guided-ai-label"><i class="ti ti-robot"></i> 匹配结果</div>
+      <div class="guided-result-text">${renderMarkdown(matchResult)}</div>
+    </div>`;
+  }
+  return html;
+}
+
 function renderQaDisplay(streaming) {
   const grid = document.getElementById('imgGrid');
-  grid.className = 'text-display';
+  grid.className = 'text-display guided-chat';
   if (!qaList.length && !streaming) {
+    // 在showGuidedTree模式下，即使没有qaList也显示引导历史
+    if (showGuidedTree) {
+      grid.innerHTML = _guidedHistoryHtml();
+      scrollChatToBottom(true);
+      return;
+    }
     showEmptyGrid();
     return;
   }
   let html = '';
+  // 在"继续追问"模式下，先渲染引导历史
+  if (showGuidedTree) {
+    html += _guidedHistoryHtml();
+  }
   for (let i = 0; i < qaList.length; i++) {
     const qa = qaList[i];
     html += `<div class="q-block"><div class="q-label">问题</div><div class="q-text">${escapeHtml(qa.question)}</div></div>`;
@@ -3313,13 +3678,17 @@ function renderQaDisplay(streaming) {
     html += `</div></div>`;
   }
   grid.innerHTML = html;
-  grid.scrollTop = grid.scrollHeight;
+  scrollChatToBottom(true);
 }
 
 function showStreamingAnswer(question, partialText) {
   const grid = document.getElementById('imgGrid');
-  grid.className = 'text-display';
+  grid.className = 'text-display guided-chat';
   let html = '';
+  // 在"继续追问"模式下，先渲染引导历史
+  if (showGuidedTree) {
+    html += _guidedHistoryHtml();
+  }
   // 之前的完整QA
   for (let i = 0; i < qaList.length - 1; i++) {
     const qa = qaList[i];
@@ -3333,7 +3702,7 @@ function showStreamingAnswer(question, partialText) {
     html += `<div class="a-block"><div class="a-label">回答</div><div class="a-text">${renderMarkdown(partialText)}<span class="cursor-blink"></span></div></div>`;
   }
   grid.innerHTML = html;
-  grid.scrollTop = grid.scrollHeight;
+  scrollChatToBottom();  // 流式输出：智能滚动
 }
 
 // ── Main generate ─────────────────────────────
@@ -3371,6 +3740,23 @@ async function generateText(input) {
   try {
     // 构造history（之前的QA对）
     const historyItems = [];
+
+    // 在"继续追问"模式下，先把引导问答作为上下文
+    if (showGuidedTree && guidedAnswers.length > 0) {
+      const guidedStartIdx = Math.max(0, guidedAnswers.length - 3);
+      for (let i = guidedStartIdx; i < guidedAnswers.length; i++) {
+        const q = (guidedAnswers[i].question || '').slice(0, 500);
+        const a = (guidedAnswers[i].answer || '').slice(0, 1500);
+        historyItems.push({ role: 'user', content: q });
+        historyItems.push({ role: 'assistant', content: a });
+      }
+      // 如果有匹配结果，也加入上下文
+      if (window._savedMatchResult) {
+        const resultSummary = window._savedMatchResult.slice(0, 2000);
+        historyItems.push({ role: 'assistant', content: '匹配结果：' + resultSummary });
+      }
+    }
+
     // 只保留最近4轮QA，避免history过长导致API变慢
     const startIdx = Math.max(0, qaList.length - 1 - 4);
     for (let i = startIdx; i < qaList.length - 1; i++) {
@@ -3416,6 +3802,8 @@ async function generateText(input) {
     renderQaDisplay(false);
     // 刷新树和状态（后端已创建节点）
     await refreshState();
+    // 如果在"继续追问"模式下，更新引导树的自由对话部分
+    if (showGuidedTree) renderGuidedTree();
   } catch (e) {
     toast('回答失败: ' + e.message);
     qaList.pop();
@@ -3726,7 +4114,61 @@ function renderTreeAttachedImages(images, selectedUrls = []) {
 }
 
 function renderHistory(history, savePath) {
-  document.getElementById('histContainer').innerHTML = history.map(h => {
+  const container = document.getElementById('histContainer');
+
+  // 引导模式下：显示引导问答历史，点击可跳转
+  if (guidedMode || showGuidedTree) {
+    let html = '';
+
+    // 引导问答
+    if (guidedAnswers && guidedAnswers.length > 0) {
+      guidedAnswers.forEach((ga, i) => {
+        const qText = (ga.question || '').length > 40 ? ga.question.slice(0, 40) + '…' : ga.question;
+        const aText = (ga.answer || '').length > 40 ? ga.answer.slice(0, 40) + '…' : ga.answer;
+        html += `<div class="hist-item on-path" onclick="_scrollToGuidedQa(${i})" style="cursor:pointer">
+          <div class="hist-head">
+            <span class="hist-v" style="background:var(--accent);color:#000">Q${i + 1}</span>
+            <span class="hist-text">${escapeHtml(qText)}</span>
+          </div>
+          <div style="padding-left:30px;font-size:11px;color:var(--accent);margin-top:2px">↳ ${escapeHtml(aText)}</div>
+        </div>`;
+      });
+    }
+
+    // 匹配结果
+    if (guidedIsResult || window._savedMatchResult) {
+      html += `<div class="hist-item current" onclick="_scrollToGuidedResult()" style="cursor:pointer">
+        <div class="hist-head">
+          <span class="hist-v" style="background:var(--green);color:#fff">🎯</span>
+          <span class="hist-text" style="color:var(--green)">匹配结果</span>
+        </div>
+      </div>`;
+    }
+
+    // 自由对话QA
+    if (qaList && qaList.length > 0) {
+      qaList.forEach((qa, i) => {
+        const qText = (qa.question || '').length > 40 ? qa.question.slice(0, 40) + '…' : qa.question;
+        html += `<div class="hist-item" onclick="_scrollToFreeChatQa(${i})" style="cursor:pointer">
+          <div class="hist-head">
+            <span class="hist-v" style="background:var(--blue);color:#fff">💬</span>
+            <span class="hist-text">${escapeHtml(qText)}</span>
+          </div>
+        </div>`;
+      });
+    }
+
+    if (!html) {
+      html = '<div style="font-size:12px;color:var(--dim);padding:8px 0">暂无对话历史</div>';
+    }
+
+    container.innerHTML = html;
+    document.getElementById('savePath').textContent = savePath || '';
+    return;
+  }
+
+  // 非引导模式：原有逻辑
+  container.innerHTML = history.map(h => {
     // 图片缩略图
     const imgs = h.image_list || [];
     const imgHtml = imgs.length ? `<div class="hist-images">${imgs.map(img => `
@@ -3747,6 +4189,53 @@ function renderHistory(history, savePath) {
     </div>`;
   }).join('');
   document.getElementById('savePath').textContent = savePath || '';
+}
+
+// 跳转到引导问答的第i条
+function _scrollToGuidedQa(index) {
+  const grid = document.getElementById('imgGrid');
+  // 先尝试找已渲染的问答块
+  const qBlocks = grid.querySelectorAll('.guided-q-block:not(.guided-welcome):not(.guided-result)');
+  if (qBlocks[index]) {
+    qBlocks[index].scrollIntoView({ behavior: 'smooth', block: 'center' });
+    qBlocks[index].style.outline = '2px solid var(--accent)';
+    setTimeout(() => { qBlocks[index].style.outline = ''; }, 1500);
+    return;
+  }
+  // 如果在只读视图或自由对话视图，先恢复到完整视图再滚动
+  if ((guidedMode && !guidedIsResult) || showGuidedTree) {
+    _restoreCurrentGuidedView();
+    setTimeout(() => {
+      const qBlocks2 = grid.querySelectorAll('.guided-q-block:not(.guided-welcome):not(.guided-result)');
+      if (qBlocks2[index]) {
+        qBlocks2[index].scrollIntoView({ behavior: 'smooth', block: 'center' });
+        qBlocks2[index].style.outline = '2px solid var(--accent)';
+        setTimeout(() => { qBlocks2[index].style.outline = ''; }, 1500);
+      }
+    }, 100);
+  }
+}
+
+// 跳转到匹配结果
+function _scrollToGuidedResult() {
+  const grid = document.getElementById('imgGrid');
+  const resultEl = grid.querySelector('.guided-result');
+  if (resultEl) {
+    resultEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    resultEl.style.outline = '2px solid var(--green)';
+    setTimeout(() => { resultEl.style.outline = ''; }, 1500);
+  }
+}
+
+// 跳转到自由对话的第i条
+function _scrollToFreeChatQa(index) {
+  const grid = document.getElementById('imgGrid');
+  const qaBlocks = grid.querySelectorAll('.qa-item');
+  if (qaBlocks[index]) {
+    qaBlocks[index].scrollIntoView({ behavior: 'smooth', block: 'center' });
+    qaBlocks[index].style.outline = '2px solid var(--blue)';
+    setTimeout(() => { qaBlocks[index].style.outline = ''; }, 1500);
+  }
 }
 
 function renderPicked(history) {
@@ -3913,52 +4402,110 @@ async function loadSession(path, silent = false) {
   if (stateRes.ok) {
     const st = await stateRes.json();
     if (st.guided_active) {
-      // 引导模式：恢复引导状态
-      guidedMode = true;
-      guidedIsResult = false;
-      guidedAnswers = [];
-      guidedTree = null;
       // 从后端树重建guidedAnswers
-      const treeRes = await fetch('/api/guided/tree');
-      if (treeRes.ok) {
-        const treeData = await treeRes.json();
-        if (treeData.tree) {
-          guidedTree = treeData.tree;
-          _rebuildAnswersFromTree(guidedTree);
-          guidedAIStep = guidedAnswers.length;
-          renderGuidedTree();
-        }
-      }
-      // 重建对话显示
-      const guidedTreeContainer = document.getElementById('guidedTreeContainer');
-      const legacyTreeSection = document.getElementById('legacyTreeSection');
-      if (guidedTreeContainer) guidedTreeContainer.style.display = '';
-      if (legacyTreeSection) legacyTreeSection.style.display = 'none';
-
-      // 显示当前叶子节点的问题
-      if (guidedTree) {
-        // 找当前叶子节点
-        let leaf = guidedTree;
-        while (leaf.children && leaf.children.length > 0) {
-          // 找选中的选项
-          const selOpt = leaf.children.find(c => c.type === 'option' && c.selected);
-          if (selOpt && selOpt.children && selOpt.children.length > 0) {
-            leaf = selOpt.children[0]; // 下一题
-          } else if (leaf.multi_next) {
-            leaf = leaf.multi_next;
-          } else {
-            break;
+      let restoredGuidedTree = null;
+      try {
+        const treeRes = await fetch('/api/guided/tree');
+        if (treeRes.ok) {
+          const treeData = await treeRes.json();
+          if (treeData.tree) {
+            restoredGuidedTree = treeData.tree;
           }
         }
-        guidedCurrentNodeId = leaf.id || '';
-        showGuidedQuestion(leaf.label || '', leaf.options || [], 'select_or_text', leaf.multi_select || false, leaf.max_select || 1);
+      } catch(e) {
+        console.warn('Failed to load guided tree:', e);
+      }
+
+      if (st.guided_exited) {
+        // 已退出引导模式（"继续追问"后刷新），进入自由对话+显示引导树
+        guidedMode = false;
+        guidedIsResult = false;
+        showGuidedTree = true;
+        guidedTree = restoredGuidedTree;
+        guidedAnswers = [];
+        if (guidedTree) _rebuildAnswersFromTree(guidedTree);
+        guidedAIStep = guidedAnswers.length;
+        document.body.classList.remove('guided-active');
+
+        // 保存匹配结果（供引导历史渲染使用）
+        window._savedMatchResult = st.guided_match_result || '';
+
+        // qaList 清空（自由对话的QA，不是引导问答）
+        qaList = [];
+
+        const guidedTreeContainer = document.getElementById('guidedTreeContainer');
+        const legacyTreeSection = document.getElementById('legacyTreeSection');
+        if (guidedTreeContainer) guidedTreeContainer.style.display = '';
+        if (legacyTreeSection) legacyTreeSection.style.display = 'none';
+        if (guidedTree) renderGuidedTree();
+
+        // 渲染聊天区：引导历史 + 自由对话QA
+        renderQaDisplay(false);
+      } else if (st.guided_is_result && st.guided_match_result) {
+        // 仍在引导模式，且匹配结果已生成
+        guidedMode = true;
+        guidedIsResult = true;
+        showGuidedTree = false;
+        guidedTree = restoredGuidedTree;
+        guidedAnswers = [];
+        if (guidedTree) _rebuildAnswersFromTree(guidedTree);
+        guidedAIStep = guidedAnswers.length;
+        document.body.classList.add('guided-active');
+
+        const guidedTreeContainer = document.getElementById('guidedTreeContainer');
+        const legacyTreeSection = document.getElementById('legacyTreeSection');
+        if (guidedTreeContainer) guidedTreeContainer.style.display = '';
+        if (legacyTreeSection) legacyTreeSection.style.display = 'none';
+        if (guidedTree) renderGuidedTree();
+
+        showGuidedResultFinal(st.guided_match_result);
+      } else {
+        // 仍在引导模式，正在问答中
+        guidedMode = true;
+        guidedIsResult = false;
+        showGuidedTree = false;
+        guidedAnswers = [];
+        guidedTree = restoredGuidedTree;
+        if (guidedTree) {
+          _rebuildAnswersFromTree(guidedTree);
+          guidedAIStep = guidedAnswers.length;
+        }
+        document.body.classList.add('guided-active');
+
+        const guidedTreeContainer = document.getElementById('guidedTreeContainer');
+        const legacyTreeSection = document.getElementById('legacyTreeSection');
+        if (guidedTreeContainer) guidedTreeContainer.style.display = '';
+        if (legacyTreeSection) legacyTreeSection.style.display = 'none';
+        if (guidedTree) renderGuidedTree();
+
+        if (guidedTree) {
+          let leaf = guidedTree;
+          while (leaf.children && leaf.children.length > 0) {
+            const selOpt = leaf.children.find(c => c.type === 'option' && c.selected);
+            if (selOpt && selOpt.children && selOpt.children.length > 0) {
+              leaf = selOpt.children[0];
+            } else if (leaf.multi_next) {
+              leaf = leaf.multi_next;
+            } else {
+              break;
+            }
+          }
+          guidedCurrentNodeId = leaf.id || '';
+          showGuidedQuestion(leaf.label || '', leaf.options || [], 'select_or_text', leaf.multi_select || false, leaf.max_select || 1);
+        } else {
+          const grid = document.getElementById('imgGrid');
+          grid.className = 'text-display guided-chat';
+          grid.innerHTML = `<div style="text-align:center;padding:60px 0;color:var(--dim);font-size:13px">加载中…</div>`;
+        }
       }
     } else {
       // 非引导模式
       guidedMode = false;
+      showGuidedTree = false;
       guidedAnswers = [];
       guidedIsResult = false;
       guidedTree = null;
+      document.body.classList.remove('guided-active');
       const guidedTreeContainer = document.getElementById('guidedTreeContainer');
       const legacyTreeSection = document.getElementById('legacyTreeSection');
       if (guidedTreeContainer) guidedTreeContainer.style.display = 'none';
@@ -3966,9 +4513,11 @@ async function loadSession(path, silent = false) {
     }
   } else {
     guidedMode = false;
+    showGuidedTree = false;
     guidedAnswers = [];
     guidedIsResult = false;
     guidedTree = null;
+    document.body.classList.remove('guided-active');
   }
 
   await refreshState();

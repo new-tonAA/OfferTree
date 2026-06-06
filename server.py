@@ -18,7 +18,8 @@ from pathlib import Path
 
 import uvicorn
 import httpx
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form
+import contextvars
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel
@@ -49,9 +50,40 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 CONFIG_FILE = APP_DIR / "config.json"
 
-# 内存单会话（桌面应用场景足够）
-_session: dict = {}
-_last_session_path: str = ""  # 记录上次加载的路径
+# 多用户隔离：每个客户端独立会话
+_sessions_by_client: dict[str, dict] = {}
+_last_session_paths: dict[str, str] = {}
+_client_id_var = contextvars.ContextVar('client_id', default='default')
+
+
+def _get_session() -> dict:
+    """获取当前客户端的会话"""
+    cid = _client_id_var.get()
+    return _sessions_by_client.get(cid, {})
+
+def _set_session(session: dict) -> None:
+    """设置当前客户端的会话"""
+    cid = _client_id_var.get()
+    _sessions_by_client[cid] = session
+
+def _get_last_path() -> str:
+    """获取当前客户端的上次会话路径"""
+    cid = _client_id_var.get()
+    return _last_session_paths.get(cid, "")
+
+def _set_last_path(path: str) -> None:
+    """设置当前客户端的上次会话路径"""
+    cid = _client_id_var.get()
+    _last_session_paths[cid] = path
+
+
+@app.middleware("http")
+async def client_id_middleware(request: Request, call_next):
+    """多用户隔离中间件：从请求头提取客户端ID，实现会话隔离"""
+    client_id = request.headers.get("X-Client-ID", "default")
+    _client_id_var.set(client_id)
+    response = await call_next(request)
+    return response
 
 
 def load_config():
@@ -102,14 +134,15 @@ load_api_keys_from_config()
 
 
 def _auto_load_latest_session():
-    """启动时自动加载最近的会话"""
-    global _session, _last_session_path
+    """启动时自动加载最近的会话（为默认客户端）"""
+    _client_id_var.set("default")
     sessions = sm.list_sessions()
     if sessions:
         latest = sessions[0]["path"]
         try:
-            _session = sm.load_session(latest)
-            _last_session_path = latest
+            session = sm.load_session(latest)
+            _set_session(session)
+            _set_last_path(latest)
             print(f"[info] Auto-loaded session: {latest}")
         except Exception as e:
             print(f"[warn] Failed to auto-load session: {e}")
@@ -120,17 +153,19 @@ _auto_load_latest_session()
 
 
 def _require_session():
-    global _session, _last_session_path
-    if not _session:
+    session = _get_session()
+    if not session:
         # 尝试自动恢复
-        if _last_session_path and Path(_last_session_path).exists():
+        last_path = _get_last_path()
+        if last_path and Path(last_path).exists():
             try:
-                _session = sm.load_session(_last_session_path)
-                return _session
+                session = sm.load_session(last_path)
+                _set_session(session)
+                return session
             except:
                 pass
         raise HTTPException(400, "请先创建或加载一个项目")
-    return _session
+    return session
 
 
 # ── 页面 ─────────────────────────────────────
@@ -158,24 +193,37 @@ class NewProjectReq(BaseModel):
 
 @app.post("/api/project/new")
 def new_project(req: NewProjectReq):
-    global _session, _last_session_path
-    _session = sm.new_session(req.project_name)
-    _last_session_path = _session["save_path"]
-    return {"ok": True, "save_path": _session["save_path"]}
+    client_id = _client_id_var.get()
+    session = sm.new_session(req.project_name, client_id=client_id)
+    _set_session(session)
+    _set_last_path(session["save_path"])
+    return {"ok": True, "save_path": session["save_path"]}
 
 @app.post("/api/project/load")
 def load_project(path: str = Form(...)):
-    global _session, _last_session_path
     try:
-        _session = sm.load_session(path)
-        _last_session_path = path
+        session = sm.load_session(path)
+        # 权限检查：只能加载自己的项目或旧的无归属项目
+        client_id = _client_id_var.get()
+        session_cid = session.get("client_id", "default")
+        if session_cid != client_id and session_cid != "default":
+            raise HTTPException(403, "无权访问该项目")
+        # 认领旧项目：将default项目绑定到当前客户端
+        if session_cid == "default" and client_id != "default":
+            session["client_id"] = client_id
+            sm._save(session)
+        _set_session(session)
+        _set_last_path(path)
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(400, str(e))
-    return {"ok": True, "project": _session["project"]}
+    return {"ok": True, "project": session["project"]}
 
 @app.get("/api/project/list")
 def list_projects():
-    return sm.list_sessions()
+    client_id = _client_id_var.get()
+    return sm.list_sessions(client_id=client_id)
 
 class RenameProjectReq(BaseModel):
     path: str
@@ -184,15 +232,23 @@ class RenameProjectReq(BaseModel):
 @app.post("/api/project/rename")
 def rename_project(req: RenameProjectReq):
     """重命名项目"""
-    global _session, _last_session_path
     try:
         s = sm.load_session(req.path)
+        # 权限检查：只能操作自己的项目（旧的无归属项目允许操作）
+        client_id = _client_id_var.get()
+        session_cid = s.get("client_id", "default")
+        if session_cid != client_id and session_cid != "default":
+            raise HTTPException(403, "无权操作该项目")
         s["project"] = req.new_name
         sm._save(s)
         # 如果是当前会话，更新内存
-        if _session and _session.get("save_path") == req.path:
-            _session["project"] = req.new_name
+        session = _get_session()
+        if session and session.get("save_path") == req.path:
+            session["project"] = req.new_name
+            _set_session(session)
         return {"ok": True}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(400, str(e))
 
@@ -202,15 +258,23 @@ class DeleteProjectReq(BaseModel):
 @app.post("/api/project/delete")
 def delete_project(req: DeleteProjectReq):
     """删除项目"""
-    global _session, _last_session_path
     try:
         import os
+        s = sm.load_session(req.path)
+        # 权限检查：只能操作自己的项目（旧的无归属项目允许操作）
+        client_id = _client_id_var.get()
+        session_cid = s.get("client_id", "default")
+        if session_cid != client_id and session_cid != "default":
+            raise HTTPException(403, "无权操作该项目")
         # 如果删除的是当前会话，清空内存
-        if _session and _session.get("save_path") == req.path:
-            _session = {}
-            _last_session_path = ""
+        session = _get_session()
+        if session and session.get("save_path") == req.path:
+            _set_session({})
+            _set_last_path("")
         os.remove(req.path)
         return {"ok": True}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(400, str(e))
 
@@ -226,8 +290,14 @@ def get_state():
     for n in sm.get_path_to_root(s):
         if n["id"] != "root" and n.get("answer"):
             path_qa.append({"question": n["user_input"], "answer": n["answer"]})
-    # 检测是否在引导模式
-    guided_active = bool(s.get("guided_tree") and s["guided_tree"].get("question"))
+    # 检测是否在引导模式：树存在且有question（根或子节点），或者已有guided_answers
+    guided_tree = s.get("guided_tree", {})
+    has_guided_content = (
+        guided_tree.get("question")
+        or (guided_tree.get("children") and len(guided_tree.get("children", {})) > 0)
+        or (s.get("guided_answers") and len(s.get("guided_answers", [])) > 0)
+    )
+    guided_active = bool(guided_tree and has_guided_content)
 
     return {
         "project":       s["project"],
@@ -249,8 +319,12 @@ def get_state():
         "current_attached_images": current_attachments,  # legacy alias
         "current_attachments": current_attachments,
         "generating":    cur.get("generating", False) and not (bool(cur.get("images")) or bool(cur.get("answer"))),
-        "path_qa":       path_qa,
-        "guided_active": guided_active,
+        "path_qa":              path_qa,
+        "guided_active":        guided_active,
+        "guided_is_result":     s.get("guided_is_result", False),
+        "guided_match_result":  s.get("guided_match_result", ""),
+        "guided_exited":        s.get("guided_exited", False),
+        "guided_free_chat_qa":  s.get("guided_free_chat_qa", []),
     }
 
 
@@ -523,18 +597,21 @@ class GuidedStartReq(BaseModel):
 @app.post("/api/guided/start")
 async def guided_start(req: GuidedStartReq):
     """开始引导式求职匹配，AI生成第一个问题"""
-    global _session, _last_session_path
 
     # 创建新项目
-    _session = sm.new_session(req.project_name)
-    _last_session_path = _session["save_path"]
+    client_id = _client_id_var.get()
+    session = sm.new_session(req.project_name, client_id=client_id)
+    _set_session(session)
+    _set_last_path(session["save_path"])
 
     # 初始化引导树和对话历史
-    _session["guided_answers"] = []
-    _session["guided_messages"] = [
+    session["guided_answers"] = []
+    session["guided_exited"] = False
+    session["guided_free_chat_qa"] = []
+    session["guided_messages"] = [
         {"role": "system", "content": gt.SYSTEM_PROMPT},
     ]
-    _session["guided_tree"] = {
+    session["guided_tree"] = {
         "id": "root",
         "question": "",
         "options": [],
@@ -546,7 +623,7 @@ async def guided_start(req: GuidedStartReq):
     }
 
     # 调用AI生成第一个问题
-    return await _ai_generate_next_question(_session)
+    return await _ai_generate_next_question(session)
 
 
 class GuidedRespondReq(BaseModel):
@@ -601,6 +678,12 @@ async def guided_respond(req: GuidedRespondReq):
     # 更新guided_answers（基于路径）
     s["guided_answers"] = gt.get_path_answers(tree)
 
+    # 用户继续回答时清除旧的匹配结果标记
+    s["guided_is_result"] = False
+    s["guided_exited"] = False
+    s.pop("guided_match_result", None)
+    s["guided_free_chat_qa"] = []
+
     # 同时在状态树中添加节点
     node = sm.add_node(s, user_text)
     sm._save(s)
@@ -629,6 +712,12 @@ async def guided_branch(req: GuidedBranchReq):
     # 更新选择（清除旧的子树选中路径）
     target["selected_option"] = req.new_option
     target["selected_options"] = [req.new_option]
+
+    # 切换分支时清除匹配结果标记
+    s["guided_is_result"] = False
+    s["guided_exited"] = False
+    s.pop("guided_match_result", None)
+    s["guided_free_chat_qa"] = []
 
     # 如果该选择还没有子节点，创建占位
     if req.new_option not in target.get("children", {}):
@@ -671,8 +760,10 @@ async def guided_branch(req: GuidedBranchReq):
                 "max_select": cur.get("max_select", 1),
                 "is_result": False,
                 "ai_generate": True,
-                "tree": gt.build_tree_for_ui(tree),
+                "tree": gt.build_tree_for_ui(tree, s.get("guided_free_chat_qa")),
             }
+
+
 
     # 新分支没有问题，调用AI生成
     return await _ai_generate_next_question(s)
@@ -699,6 +790,11 @@ async def guided_navigate(req: GuidedNavigateReq):
     target["selected_option"] = ""
     target["selected_options"] = []
 
+    # 回溯时清除匹配结果标记
+    s["guided_is_result"] = False
+    s["guided_exited"] = False
+    s.pop("guided_match_result", None)
+
     # 重建对话历史和答案
     _rebuild_guided_messages(s)
     s["guided_answers"] = gt.get_path_answers(tree)
@@ -715,8 +811,11 @@ async def guided_navigate(req: GuidedNavigateReq):
         "max_select": target.get("max_select", 1),
         "is_result": False,
         "ai_generate": True,
-        "tree": gt.build_tree_for_ui(tree),
+        "tree": gt.build_tree_for_ui(tree, s.get("guided_free_chat_qa")),
     }
+
+
+
 
 
 async def _ai_generate_next_question(s: dict):
@@ -809,7 +908,7 @@ async def _ai_generate_next_question(s: dict):
     sm._save(s)
 
     # 构建前端树
-    ui_tree = gt.build_tree_for_ui(tree)
+    ui_tree = gt.build_tree_for_ui(tree, s.get("guided_free_chat_qa"))
 
     if action == "result":
         return await _generate_match_result(s, "match_result")
@@ -918,6 +1017,10 @@ async def _generate_match_result(s: dict, node_id: str):
         except Exception as e:
             yield f"\n[错误] {e}"
             return
+        # 流式完成，保存匹配结果到session
+        _session_ref["guided_match_result"] = full_text
+        _session_ref["guided_is_result"] = True
+        sm._save(_session_ref)
 
     # 标记这是一个流式匹配结果
     # 使用特殊前缀让前端识别
@@ -942,8 +1045,43 @@ def guided_tree():
     tree = _get_guided_tree(s)
     return {
         "ok": True,
-        "tree": gt.build_tree_for_ui(tree),
+        "tree": gt.build_tree_for_ui(tree, s.get("guided_free_chat_qa")),
     }
+
+
+
+
+
+@app.post("/api/guided/clear_result")
+def guided_clear_result():
+    """清除匹配结果标记（用户点击"继续追问"时调用）"""
+    s = _require_session()
+    s["guided_is_result"] = False
+    s["guided_exited"] = True
+    s.pop("guided_match_result", None)
+    # 初始化自由对话QA列表
+    if "guided_free_chat_qa" not in s:
+        s["guided_free_chat_qa"] = []
+    sm._save(s)
+    return {"ok": True}
+
+
+class GuidedFreeChatQAReq(BaseModel):
+    question: str
+    answer: str
+
+@app.post("/api/guided/free_chat_qa")
+def guided_add_free_chat_qa(req: GuidedFreeChatQAReq):
+    """追加一条自由对话QA到后端session"""
+    s = _require_session()
+    if "guided_free_chat_qa" not in s:
+        s["guided_free_chat_qa"] = []
+    s["guided_free_chat_qa"].append({
+        "question": req.question,
+        "answer": req.answer,
+    })
+    sm._save(s)
+    return {"ok": True}
 
 
 # ── 简历评估 ─────────────────────────────────

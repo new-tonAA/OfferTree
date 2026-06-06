@@ -75,7 +75,7 @@ def _new_node(node_id: str, parent_id: Optional[str], user_input: str) -> dict:
 # 会话
 # ─────────────────────────────────────────────
 
-def new_session(project_name: str) -> dict:
+def new_session(project_name: str, client_id: str = "default") -> dict:
     """创建全新会话，返回session dict。"""
     root_node = _new_node("root", None, project_name)
     root_node["generating"] = False  # 根节点不需要生成图片
@@ -87,6 +87,7 @@ def new_session(project_name: str) -> dict:
         "style_weights":  {},
         "reference_images": [],
         "save_path":      str(SESSIONS_DIR / f"{_slugify(project_name)}_{_ts()}.json"),
+        "client_id":      client_id,
     }
     _migrate_session_schema(session)
     _save(session)
@@ -101,18 +102,25 @@ def load_session(path: str) -> dict:
     return s
 
 
-def list_sessions() -> list[dict]:
-    """列出所有已保存的会话（按时间倒序）。"""
+def list_sessions(client_id: str = None) -> list[dict]:
+    """列出已保存的会话（按时间倒序）。
+    如果指定client_id，返回该客户端的会话 + 旧的无client_id的会话（兼容历史数据）。
+    """
     files = sorted(SESSIONS_DIR.glob("*.json"), key=os.path.getmtime, reverse=True)
     result = []
     for f in files:
         try:
             s = load_session(str(f))
+            session_cid = s.get("client_id", "default")
+            # 按client_id过滤：返回属于该客户端的会话 + 旧的无归属会话(default)
+            if client_id is not None and session_cid != client_id and session_cid != "default":
+                continue
             result.append({
                 "path":    str(f),
                 "project": s["project"],
                 "created": s["created"],
                 "nodes":   len(s["nodes"]),
+                "client_id": session_cid,
             })
         except Exception:
             pass
@@ -741,6 +749,9 @@ def _migrate_session_schema(session: dict) -> None:
         invalid_keys = [k for k in weights if k not in STYLE_KEYWORDS]
         for k in invalid_keys:
             weights.pop(k, None)
+    # 迁移：旧会话没有client_id字段，默认为"default"
+    if "client_id" not in session:
+        session["client_id"] = "default"
 
 
 def _build_path_style_weights(path: list[dict]) -> dict:
