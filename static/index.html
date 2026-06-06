@@ -165,6 +165,23 @@ body.resizing { cursor: col-resize; user-select: none; }
 .text-display .a-text li { margin: 2px 0; }
 .text-display .a-text code { font-family: 'JetBrains Mono', monospace; font-size: 12px; background: var(--bg3); padding: 2px 5px; border-radius: 3px; }
 .text-display .a-text pre { margin: 8px 0; border-radius: 6px; overflow-x: auto; }
+
+/* 简历评估/优化结果的markdown渲染样式 */
+#resumeResultContent h1 { font-size: 18px; font-weight: 600; margin: 10px 0 6px; }
+#resumeResultContent h2 { font-size: 16px; font-weight: 600; border-bottom: 1px solid var(--line); padding-bottom: 4px; margin: 10px 0 6px; }
+#resumeResultContent h3 { font-size: 15px; font-weight: 600; margin: 8px 0 4px; }
+#resumeResultContent p { margin: 6px 0; }
+#resumeResultContent ul, #resumeResultContent ol { margin: 6px 0; padding-left: 24px; }
+#resumeResultContent li { margin: 3px 0; }
+#resumeResultContent code { font-family: 'JetBrains Mono', monospace; font-size: 12px; background: var(--bg3); padding: 2px 5px; border-radius: 3px; }
+#resumeResultContent pre { margin: 8px 0; border-radius: 6px; overflow-x: auto; }
+#resumeResultContent pre code { display: block; padding: 10px 12px; background: #1a1b26; }
+#resumeResultContent blockquote { border-left: 3px solid var(--accent); padding-left: 12px; margin: 8px 0; color: var(--muted); }
+#resumeResultContent table { border-collapse: collapse; margin: 8px 0; width: 100%; }
+#resumeResultContent th, #resumeResultContent td { border: 1px solid var(--line); padding: 6px 10px; font-size: 12px; }
+#resumeResultContent th { background: var(--bg3); font-weight: 600; }
+#resumeResultContent strong { font-weight: 600; }
+#resumeResultContent hr { border: none; border-top: 1px solid var(--line); margin: 10px 0; }
 .text-display .a-text pre code { display: block; padding: 12px 14px; background: #1a1b26; font-size: 12px; line-height: 1.5; }
 .text-display .a-text blockquote { margin: 6px 0; padding: 4px 12px; border-left: 3px solid var(--accent); color: var(--dim); }
 .text-display .a-text table { border-collapse: collapse; margin: 8px 0; font-size: 13px; }
@@ -1039,9 +1056,11 @@ textarea#userInput::placeholder { color: var(--dim); }
           </div>
           <label style="font-size:11px;color:var(--dim);display:block;margin-bottom:4px">目标岗位（可选）</label>
           <input id="resumeTarget" type="text" placeholder="例如：前端开发工程师" 
+            oninput="saveResume()"
             style="width:100%;padding:7px 10px;border-radius:6px;border:1px solid var(--line2);background:var(--bg3);color:var(--text);font-size:12px;font-family:var(--sans);margin-bottom:8px;outline:none" />
           <label style="font-size:11px;color:var(--dim);display:block;margin-bottom:4px">简历内容</label>
           <textarea id="resumeText" placeholder="在此粘贴你的简历内容…"
+            oninput="saveResume()"
             style="width:100%;min-height:150px;max-height:300px;resize:vertical;padding:8px 10px;border-radius:6px;border:1px solid var(--line2);background:var(--bg3);color:var(--text);font-size:12px;font-family:var(--sans);line-height:1.5;outline:none;margin-bottom:8px"></textarea>
           <div style="display:flex;gap:6px;margin-bottom:12px">
             <button onclick="evaluateResume()" class="toolbar-btn" style="flex:1;font-size:11px;padding:8px 10px">
@@ -2391,6 +2410,32 @@ function loadInput() {
   }
 }
 
+// 简历内容持久化
+const RESUME_KEY = 'archai_resume_' + clientId;
+const RESUME_TARGET_KEY = 'archai_resume_target_' + clientId;
+const RESUME_RESULT_KEY = 'archai_resume_result_' + clientId;
+
+function saveResume() {
+  const text = document.getElementById('resumeText')?.value || '';
+  const target = document.getElementById('resumeTarget')?.value || '';
+  const result = document.getElementById('resumeResultContent')?.innerHTML || '';
+  localStorage.setItem(RESUME_KEY, text);
+  localStorage.setItem(RESUME_TARGET_KEY, target);
+  localStorage.setItem(RESUME_RESULT_KEY, result);
+}
+
+function loadResume() {
+  const text = localStorage.getItem(RESUME_KEY);
+  const target = localStorage.getItem(RESUME_TARGET_KEY);
+  const result = localStorage.getItem(RESUME_RESULT_KEY);
+  if (target) document.getElementById('resumeTarget').value = target;
+  if (text) document.getElementById('resumeText').value = text;
+  if (result) {
+    document.getElementById('resumeResult').style.display = '';
+    document.getElementById('resumeResultContent').innerHTML = result;
+  }
+}
+
 // Save model memory to localStorage
 function saveModelMemory() {
   const memory = document.getElementById('modelMemory')?.value || '';
@@ -2507,6 +2552,7 @@ async function init() {
 
   // Load saved input
   loadInput();
+  loadResume();
 
   // Load model memory
   loadModelMemory();
@@ -4564,6 +4610,7 @@ async function evaluateResume() {
     }
 
     contentDiv.innerHTML = renderMarkdown(fullText);
+    saveResume();
   } catch (e) {
     contentDiv.innerHTML = `<div style="color:var(--red)">评估失败: ${e.message}</div>`;
   }
@@ -4608,6 +4655,7 @@ async function enhanceResume() {
     }
 
     contentDiv.innerHTML = renderMarkdown(fullText);
+    saveResume();
   } catch (e) {
     contentDiv.innerHTML = `<div style="color:var(--red)">优化失败: ${e.message}</div>`;
   }
