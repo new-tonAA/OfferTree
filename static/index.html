@@ -961,9 +961,6 @@ textarea#userInput::placeholder { color: var(--dim); }
       新建求职
     </button>
     <div class="tbar-right">
-      <button class="cfg-sel" style="width:auto;padding:5px 10px;font-size:11px" id="imgPlatformBtn" onclick="showImgPlatformModal()">
-        <span id="imgPlatformLabel">画图平台</span>
-      </button>
       <button class="cfg-sel" style="width:auto;padding:5px 10px;font-size:11px" id="txtPlatformBtn" onclick="showTxtPlatformModal()">
         <span id="txtPlatformLabel">文本平台</span>
       </button>
@@ -1089,29 +1086,6 @@ textarea#userInput::placeholder { color: var(--dim); }
           <textarea id="modelMemory" class="model-memory-area" placeholder="输入永久附加的提示词，如：侧重TCP/IP协议、强调实践应用、使用中文…" oninput="saveModelMemory()"></textarea>
         </div>
       </div>
-    </div>
-  </div>
-</div>
-
-<!-- Image Platform Modal -->
-<div id="imgPlatformModal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.7);z-index:1000;align-items:center;justify-content:center">
-  <div style="background:var(--bg2);border:1px solid var(--line2);border-radius:12px;padding:24px;width:360px">
-    <div style="font-size:16px;font-weight:600;margin-bottom:16px;color:var(--text)">画图平台</div>
-    <div class="cfg-grp" style="margin-bottom:12px">
-      <div class="cfg-lbl">平台</div>
-      <select class="cfg-sel" id="platformSelect" onchange="onPlatformChange()">
-        <option value="">加载中...</option>
-      </select>
-    </div>
-    <div class="cfg-grp" style="margin-bottom:16px">
-      <div class="cfg-lbl">画图模型</div>
-      <select class="cfg-sel" id="imageModelSelect" onchange="onImageModelChange()">
-        <option value="">请先选择平台</option>
-      </select>
-    </div>
-    <div style="display:flex;gap:10px">
-      <button class="cfg-sel" style="flex:1;cursor:pointer" onclick="hideImgPlatformModal()">取消</button>
-      <button class="send-btn" style="flex:1;justify-content:center" onclick="applyImgPlatform()">确定</button>
     </div>
   </div>
 </div>
@@ -2461,11 +2435,7 @@ async function init() {
     platformsData = await platformsRes.json();
     // 校验 localStorage 中的配置是否仍然有效
     validateTextConfig();
-    const platformEl = document.getElementById('platformSelect');
     const textPlatformEl = document.getElementById('textPlatformSelect');
-    platformEl.innerHTML = Object.entries(platformsData).map(([k, v]) =>
-      `<option value="${k}">${v.name}</option>`
-    ).join('');
     textPlatformEl.innerHTML = Object.entries(platformsData).map(([k, v]) =>
       `<option value="${k}">${v.name}</option>`
     ).join('');
@@ -2483,25 +2453,10 @@ async function init() {
       currentTextPlatform = current.text_platform || 'v3';
       currentTextModel = current.text_model || 'gpt-4o-mini';
     }
-    // 设置下拉框值（不触发onPlatformChange）
-    document.getElementById('platformSelect').value = currentPlatform;
+    // 设置下拉框值
     document.getElementById('textPlatformSelect').value = currentTextPlatform;
     
-    // 手动填充模型下拉框并设置值
-    if (platformsData[currentPlatform]) {
-      const models = platformsData[currentPlatform].models;
-      const imageEl = document.getElementById('imageModelSelect');
-      const imageModels = models.image || [];
-      imageEl.innerHTML = imageModels.map(m => `<option value="${m}">${getModelIcon(m)} ${m}</option>`).join('');
-      if (imageModels.length) {
-        const wanted = normalizeImageModelAlias(currentImageModel);
-        const next = imageModels.includes(wanted) ? wanted : imageModels[0];
-        imageEl.value = next;
-        currentImageModel = next;
-      }
-    }
-    
-    if (platformsData[currentTextPlatform]) {
+    // 手动填充文本模型下拉框并设置值
       const models = platformsData[currentTextPlatform].models;
       const textEl = document.getElementById('textModelSelect');
       const customEl = document.getElementById('textModelCustom');
@@ -2604,13 +2559,11 @@ async function init() {
 }
 
 async function autoCreateProject() {
-  // Set platform first
-  const platform = document.getElementById('platformSelect').value;
-  const imageModel = document.getElementById('imageModelSelect').value;
+  // Set text platform first
   await fetch('/api/set_platform', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({platform, image_model: imageModel})
+    body: JSON.stringify({platform: currentPlatform, image_model: currentImageModel})
   });
 
   qaList = [];  // 清空问答记录
@@ -2641,22 +2594,10 @@ function getModelIcon(model) {
 }
 
 function updatePlatformLabel() {
-  const imgIcon = getPlatformIcon(currentPlatform);
-  const imgName = platformsData[currentPlatform]?.name || currentPlatform;
-  const imgModelIcon = getModelIcon(currentImageModel);
   const txtIcon = getPlatformIcon(currentTextPlatform);
   const txtName = platformsData[currentTextPlatform]?.name || currentTextPlatform;
   const txtModelIcon = getModelIcon(currentTextModel);
-  document.getElementById('imgPlatformLabel').textContent = `${imgIcon} ${imgName} · ${imgModelIcon}${currentImageModel}`;
   document.getElementById('txtPlatformLabel').textContent = `${txtIcon} ${txtName} · ${txtModelIcon}${currentTextModel}`;
-}
-
-function showImgPlatformModal() {
-  document.getElementById('imgPlatformModal').style.display = 'flex';
-}
-
-function hideImgPlatformModal() {
-  document.getElementById('imgPlatformModal').style.display = 'none';
 }
 
 function showTxtPlatformModal() {
@@ -2665,26 +2606,6 @@ function showTxtPlatformModal() {
 
 function hideTxtPlatformModal() {
   document.getElementById('txtPlatformModal').style.display = 'none';
-}
-
-function onPlatformChange() {
-  const platform = document.getElementById('platformSelect').value;
-  if (!platform || !platformsData[platform]) return;
-  currentPlatform = platform;
-  const models = platformsData[platform].models;
-  const imageEl = document.getElementById('imageModelSelect');
-  const imageModels = models.image || [];
-  imageEl.innerHTML = imageModels.map(m => `<option value="${m}">${getModelIcon(m)} ${m}</option>`).join('');
-  if (!imageModels.length) {
-    currentImageModel = '';
-    saveConfig();
-    return;
-  }
-  const wanted = normalizeImageModelAlias(currentImageModel || imageEl.value);
-  const next = imageModels.includes(wanted) ? wanted : imageModels[0];
-  imageEl.value = next;
-  currentImageModel = next;
-  saveConfig();
 }
 
 function onTextPlatformChange() {
@@ -2714,45 +2635,11 @@ function onTextPlatformChange() {
   saveConfig();
 }
 
-function onImageModelChange() {
-  const imageEl = document.getElementById('imageModelSelect');
-  currentImageModel = normalizeImageModelAlias(imageEl.value);
-  saveConfig();
-  updatePlatformLabel();
-}
-
 function onTextModelChange() {
   const textEl = document.getElementById('textModelSelect');
   currentTextModel = textEl.value;
   saveConfig();
   updatePlatformLabel();
-}
-
-async function applyImgPlatform() {
-  const platform = document.getElementById('platformSelect').value;
-  const imageSelect = document.getElementById('imageModelSelect');
-  const imageModel = normalizeImageModelAlias(imageSelect.value || imageSelect.options?.[0]?.value || '');
-
-  const res = await fetch('/api/set_platform', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({
-      platform,
-      image_model: imageModel
-    })
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    toast('画图平台切换失败: ' + (err.detail || res.status));
-    return;
-  }
-
-  currentPlatform = platform;
-  currentImageModel = imageModel;
-  saveConfig();
-  updatePlatformLabel();
-  hideImgPlatformModal();
-  toast('画图平台已切换');
 }
 
 async function applyTxtPlatform() {
