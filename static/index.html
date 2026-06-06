@@ -544,6 +544,12 @@ textarea#userInput::placeholder { color: var(--dim); }
   border-color: var(--accent);
   color: var(--accent);
 }
+.toolbar-btn.active {
+  background: var(--acl);
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 500;
+}
 .toolbar-btn.send-btn {
   background: var(--accent);
   color: var(--bg);
@@ -2422,6 +2428,7 @@ const RESUME_ENHANCE_RESULT_KEY = 'archai_resume_enhance_' + clientId;
 let _resumeLastAction = null; // 'eval' or 'enhance'
 let _resumeEvalDone = false;
 let _resumeEnhanceDone = false;
+let _resumeTaskGen = 0; // 任务代数，用于防止异步竞态
 
 function saveResume() {
   const text = document.getElementById('resumeText')?.value || '';
@@ -2464,12 +2471,17 @@ function loadResume() {
 function updateResumeBtnLabels() {
   const evalBtn = document.getElementById('evalBtn');
   const enhanceBtn = document.getElementById('enhanceBtn');
+  // 清除 active 状态
+  evalBtn.classList.remove('active');
+  enhanceBtn.classList.remove('active');
   if (_resumeLastAction === 'eval') {
     evalBtn.innerHTML = '<i class="ti ti-search"></i> 重新匹配';
     enhanceBtn.innerHTML = '<i class="ti ti-wand"></i> 优化简历';
+    evalBtn.classList.add('active');
   } else if (_resumeLastAction === 'enhance') {
     evalBtn.innerHTML = '<i class="ti ti-search"></i> 评估匹配度';
     enhanceBtn.innerHTML = '<i class="ti ti-wand"></i> 重新优化';
+    enhanceBtn.classList.add('active');
   } else {
     evalBtn.innerHTML = '<i class="ti ti-search"></i> 评估匹配度';
     enhanceBtn.innerHTML = '<i class="ti ti-wand"></i> 优化简历';
@@ -4637,6 +4649,8 @@ async function evaluateResume() {
     }
   }
 
+  // 启动新任务，递增代数
+  const myGen = ++_resumeTaskGen;
   const contentDiv = document.getElementById('resumeResultContent');
   showResumeResult('评估结果', '<div style="color:var(--dim)"><i class="ti ti-loader" style="animation:spin 1s linear infinite"></i> 正在评估简历匹配度…</div>');
 
@@ -4650,30 +4664,37 @@ async function evaluateResume() {
 
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      contentDiv.innerHTML = `<div style="color:var(--red)">评估失败: ${err.detail || res.status}</div>`;
+      if (_resumeTaskGen === myGen) contentDiv.innerHTML = `<div style="color:var(--red)">评估失败: ${err.detail || res.status}</div>`;
       return;
     }
 
     const reader = res.body.getReader();
     const decoder = new TextDecoder('utf-8');
     let fullText = '';
-    contentDiv.innerHTML = '';
+    if (_resumeTaskGen === myGen) contentDiv.innerHTML = '';
 
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
       fullText += decoder.decode(value, { stream: true });
-      contentDiv.innerHTML = renderMarkdown(fullText) + '<span class="cursor-blink"></span>';
+      if (_resumeTaskGen === myGen) contentDiv.innerHTML = renderMarkdown(fullText) + '<span class="cursor-blink"></span>';
     }
 
-    contentDiv.innerHTML = renderMarkdown(fullText);
-    contentDiv.setAttribute('data-eval', fullText);
-    _resumeEvalDone = true;
-    _resumeLastAction = 'eval';
-    updateResumeBtnLabels();
-    saveResume();
+    // 只有仍是当前任务才写入最终结果
+    if (_resumeTaskGen === myGen) {
+      contentDiv.innerHTML = renderMarkdown(fullText);
+      contentDiv.setAttribute('data-eval', fullText);
+      _resumeEvalDone = true;
+      _resumeLastAction = 'eval';
+      updateResumeBtnLabels();
+      saveResume();
+    } else {
+      // 被新任务抢占，但仍然缓存结果
+      contentDiv.setAttribute('data-eval', fullText);
+      _resumeEvalDone = true;
+    }
   } catch (e) {
-    contentDiv.innerHTML = `<div style="color:var(--red)">评估失败: ${e.message}</div>`;
+    if (_resumeTaskGen === myGen) contentDiv.innerHTML = `<div style="color:var(--red)">评估失败: ${e.message}</div>`;
   }
 }
 
@@ -4695,6 +4716,8 @@ async function enhanceResume() {
     }
   }
 
+  // 启动新任务，递增代数
+  const myGen = ++_resumeTaskGen;
   const contentDiv = document.getElementById('resumeResultContent');
   showResumeResult('优化结果', '<div style="color:var(--dim)"><i class="ti ti-loader" style="animation:spin 1s linear infinite"></i> 正在优化简历…</div>');
 
@@ -4708,30 +4731,37 @@ async function enhanceResume() {
 
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      contentDiv.innerHTML = `<div style="color:var(--red)">优化失败: ${err.detail || res.status}</div>`;
+      if (_resumeTaskGen === myGen) contentDiv.innerHTML = `<div style="color:var(--red)">优化失败: ${err.detail || res.status}</div>`;
       return;
     }
 
     const reader = res.body.getReader();
     const decoder = new TextDecoder('utf-8');
     let fullText = '';
-    contentDiv.innerHTML = '';
+    if (_resumeTaskGen === myGen) contentDiv.innerHTML = '';
 
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
       fullText += decoder.decode(value, { stream: true });
-      contentDiv.innerHTML = renderMarkdown(fullText) + '<span class="cursor-blink"></span>';
+      if (_resumeTaskGen === myGen) contentDiv.innerHTML = renderMarkdown(fullText) + '<span class="cursor-blink"></span>';
     }
 
-    contentDiv.innerHTML = renderMarkdown(fullText);
-    contentDiv.setAttribute('data-enhance', fullText);
-    _resumeEnhanceDone = true;
-    _resumeLastAction = 'enhance';
-    updateResumeBtnLabels();
-    saveResume();
+    // 只有仍是当前任务才写入最终结果
+    if (_resumeTaskGen === myGen) {
+      contentDiv.innerHTML = renderMarkdown(fullText);
+      contentDiv.setAttribute('data-enhance', fullText);
+      _resumeEnhanceDone = true;
+      _resumeLastAction = 'enhance';
+      updateResumeBtnLabels();
+      saveResume();
+    } else {
+      // 被新任务抢占，但仍然缓存结果
+      contentDiv.setAttribute('data-enhance', fullText);
+      _resumeEnhanceDone = true;
+    }
   } catch (e) {
-    contentDiv.innerHTML = `<div style="color:var(--red)">优化失败: ${e.message}</div>`;
+    if (_resumeTaskGen === myGen) contentDiv.innerHTML = `<div style="color:var(--red)">优化失败: ${e.message}</div>`;
   }
 }
 
