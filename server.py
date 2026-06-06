@@ -104,29 +104,32 @@ def save_config(config: dict):
 
 
 def load_api_keys_from_config():
-    """从配置文件加载API keys"""
+    """从环境变量和配置文件加载API keys（环境变量优先）"""
     config = load_config()
     keys = config.get('api_keys', {})
-    openai_key = None
-    if keys.get('openai'):
-        openai_key = agent._sanitize_api_key(keys['openai'])
-    elif config.get('openai_api_key'):
-        openai_key = agent._sanitize_api_key(config.get('openai_api_key'))
+
+    # 优先从环境变量读取，没有则从配置文件读取
+    openai_key = os.environ.get('OPENAI_API_KEY') or (agent._sanitize_api_key(keys['openai']) if keys.get('openai') else None) or (agent._sanitize_api_key(config.get('openai_api_key')) if config.get('openai_api_key') else None)
+    openrouter_key = os.environ.get('OPENROUTER_API_KEY') or (agent._sanitize_api_key(keys['openrouter']) if keys.get('openrouter') else None)
+    v3_key = os.environ.get('V3_API_KEY') or (agent._sanitize_api_key(keys['v3']) if keys.get('v3') else None)
+    deepseek_key = os.environ.get('DEEPSEEK_API_KEY') or (agent._sanitize_api_key(keys['deepseek']) if keys.get('deepseek') else None)
+    volcengine_key = os.environ.get('VOLCENGINE_API_KEY') or (agent._sanitize_api_key(keys['volcengine']) if keys.get('volcengine') else None)
 
     if openai_key:
         agent.PLATFORMS["openai"]["api_key"] = openai_key
         os.environ["OPENAI_API_KEY"] = openai_key
+    if openrouter_key:
+        agent.PLATFORMS["openrouter"]["api_key"] = openrouter_key
+    if v3_key:
+        agent.PLATFORMS["v3"]["api_key"] = v3_key
+    if deepseek_key:
+        agent.PLATFORMS["deepseek"]["api_key"] = deepseek_key
+    if volcengine_key:
+        agent.PLATFORMS["volcengine"]["api_key"] = volcengine_key
 
-    if keys.get('openrouter'):
-        agent.PLATFORMS["openrouter"]["api_key"] = agent._sanitize_api_key(keys['openrouter'])
-    if keys.get('v3'):
-        agent.PLATFORMS["v3"]["api_key"] = agent._sanitize_api_key(keys['v3'])
-    if keys.get('deepseek'):
-        agent.PLATFORMS["deepseek"]["api_key"] = agent._sanitize_api_key(keys['deepseek'])
-    if keys.get('volcengine'):
-        agent.PLATFORMS["volcengine"]["api_key"] = agent._sanitize_api_key(keys['volcengine'])
-    if openai_key or keys:
-        print(f"[info] Loaded API keys from config: {CONFIG_FILE}")
+    loaded = [k for k in [openai_key, openrouter_key, v3_key, deepseek_key, volcengine_key] if k]
+    if loaded:
+        print(f"[info] Loaded {len(loaded)} API key(s) from env/config")
 
 
 # 启动时加载配置
