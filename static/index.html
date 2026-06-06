@@ -1065,15 +1065,15 @@ textarea#userInput::placeholder { color: var(--dim); }
             oninput="saveResume()"
             style="width:100%;min-height:150px;max-height:300px;resize:vertical;padding:8px 10px;border-radius:6px;border:1px solid var(--line2);background:var(--bg3);color:var(--text);font-size:12px;font-family:var(--sans);line-height:1.5;outline:none;margin-bottom:8px"></textarea>
           <div style="display:flex;gap:6px;margin-bottom:12px">
-            <button onclick="evaluateResume()" class="toolbar-btn" style="flex:1;font-size:11px;padding:8px 10px">
+            <button id="evalBtn" onclick="evaluateResume()" class="toolbar-btn" style="flex:1;font-size:11px;padding:8px 10px">
               <i class="ti ti-search"></i> 评估匹配度
             </button>
-            <button onclick="enhanceResume()" class="toolbar-btn" style="flex:1;font-size:11px;padding:8px 10px">
+            <button id="enhanceBtn" onclick="enhanceResume()" class="toolbar-btn" style="flex:1;font-size:11px;padding:8px 10px">
               <i class="ti ti-wand"></i> 优化简历
             </button>
           </div>
           <div id="resumeResult" style="display:none">
-            <div class="sec">评估结果</div>
+            <div id="resumeResultTitle" class="sec">评估结果</div>
             <div id="resumeResultContent" style="font-size:13px;line-height:1.7;color:var(--text);max-height:400px;overflow-y:auto;padding:8px;background:var(--bg3);border-radius:6px;border:1px solid var(--line)"></div>
           </div>
         </div>
@@ -2415,27 +2415,73 @@ function loadInput() {
 // 简历内容持久化
 const RESUME_KEY = 'archai_resume_' + clientId;
 const RESUME_TARGET_KEY = 'archai_resume_target_' + clientId;
-const RESUME_RESULT_KEY = 'archai_resume_result_' + clientId;
+const RESUME_EVAL_RESULT_KEY = 'archai_resume_eval_' + clientId;
+const RESUME_ENHANCE_RESULT_KEY = 'archai_resume_enhance_' + clientId;
+
+// 简历按钮状态：'eval' = 评估完成有缓存, 'enhance' = 优化完成有缓存, null = 无缓存
+let _resumeLastAction = null; // 'eval' or 'enhance'
+let _resumeEvalDone = false;
+let _resumeEnhanceDone = false;
 
 function saveResume() {
   const text = document.getElementById('resumeText')?.value || '';
   const target = document.getElementById('resumeTarget')?.value || '';
-  const result = document.getElementById('resumeResultContent')?.innerHTML || '';
   localStorage.setItem(RESUME_KEY, text);
   localStorage.setItem(RESUME_TARGET_KEY, target);
-  localStorage.setItem(RESUME_RESULT_KEY, result);
+  // 分别保存评估和优化结果
+  const evalResult = document.getElementById('resumeResultContent')?.getAttribute('data-eval') || '';
+  const enhanceResult = document.getElementById('resumeResultContent')?.getAttribute('data-enhance') || '';
+  if (evalResult) localStorage.setItem(RESUME_EVAL_RESULT_KEY, evalResult);
+  if (enhanceResult) localStorage.setItem(RESUME_ENHANCE_RESULT_KEY, enhanceResult);
 }
 
 function loadResume() {
   const text = localStorage.getItem(RESUME_KEY);
   const target = localStorage.getItem(RESUME_TARGET_KEY);
-  const result = localStorage.getItem(RESUME_RESULT_KEY);
+  const evalResult = localStorage.getItem(RESUME_EVAL_RESULT_KEY);
+  const enhanceResult = localStorage.getItem(RESUME_ENHANCE_RESULT_KEY);
   if (target) document.getElementById('resumeTarget').value = target;
   if (text) document.getElementById('resumeText').value = text;
-  if (result) {
-    document.getElementById('resumeResult').style.display = '';
-    document.getElementById('resumeResultContent').innerHTML = result;
+  if (evalResult) {
+    _resumeEvalDone = true;
+    document.getElementById('resumeResultContent').setAttribute('data-eval', evalResult);
   }
+  if (enhanceResult) {
+    _resumeEnhanceDone = true;
+    document.getElementById('resumeResultContent').setAttribute('data-enhance', enhanceResult);
+  }
+  // 恢复上次查看的结果和按钮状态
+  if (enhanceResult) {
+    _resumeLastAction = 'enhance';
+    showResumeResult('优化结果', renderMarkdown(enhanceResult));
+  } else if (evalResult) {
+    _resumeLastAction = 'eval';
+    showResumeResult('评估结果', renderMarkdown(evalResult));
+  }
+  updateResumeBtnLabels();
+}
+
+function updateResumeBtnLabels() {
+  const evalBtn = document.getElementById('evalBtn');
+  const enhanceBtn = document.getElementById('enhanceBtn');
+  if (_resumeLastAction === 'eval') {
+    evalBtn.innerHTML = '<i class="ti ti-search"></i> 重新匹配';
+    enhanceBtn.innerHTML = '<i class="ti ti-wand"></i> 优化简历';
+  } else if (_resumeLastAction === 'enhance') {
+    evalBtn.innerHTML = '<i class="ti ti-search"></i> 评估匹配度';
+    enhanceBtn.innerHTML = '<i class="ti ti-wand"></i> 重新优化';
+  } else {
+    evalBtn.innerHTML = '<i class="ti ti-search"></i> 评估匹配度';
+    enhanceBtn.innerHTML = '<i class="ti ti-wand"></i> 优化简历';
+  }
+}
+
+function showResumeResult(title, html) {
+  const resultDiv = document.getElementById('resumeResult');
+  const contentDiv = document.getElementById('resumeResultContent');
+  document.getElementById('resumeResultTitle').textContent = title;
+  resultDiv.style.display = '';
+  contentDiv.innerHTML = html;
 }
 
 // Save model memory to localStorage
@@ -4579,14 +4625,23 @@ async function evaluateResume() {
     toast('请先粘贴简历内容');
     return;
   }
-  const targetPosition = document.getElementById('resumeTarget').value.trim();
-  const resultDiv = document.getElementById('resumeResult');
+
+  // 如果按钮是"评估匹配度"（非"重新匹配"），且有缓存的评估结果，直接显示
+  if (_resumeLastAction !== 'eval' && _resumeEvalDone) {
+    const cached = document.getElementById('resumeResultContent').getAttribute('data-eval');
+    if (cached) {
+      showResumeResult('评估结果', renderMarkdown(cached));
+      _resumeLastAction = 'eval';
+      updateResumeBtnLabels();
+      return;
+    }
+  }
+
   const contentDiv = document.getElementById('resumeResultContent');
-  
-  resultDiv.style.display = '';
-  contentDiv.innerHTML = '<div style="color:var(--dim)"><i class="ti ti-loader" style="animation:spin 1s linear infinite"></i> 正在评估简历匹配度…</div>';
+  showResumeResult('评估结果', '<div style="color:var(--dim)"><i class="ti ti-loader" style="animation:spin 1s linear infinite"></i> 正在评估简历匹配度…</div>');
 
   try {
+    const targetPosition = document.getElementById('resumeTarget').value.trim();
     const res = await fetch('/api/evaluate_resume', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
@@ -4612,6 +4667,10 @@ async function evaluateResume() {
     }
 
     contentDiv.innerHTML = renderMarkdown(fullText);
+    contentDiv.setAttribute('data-eval', fullText);
+    _resumeEvalDone = true;
+    _resumeLastAction = 'eval';
+    updateResumeBtnLabels();
     saveResume();
   } catch (e) {
     contentDiv.innerHTML = `<div style="color:var(--red)">评估失败: ${e.message}</div>`;
@@ -4624,14 +4683,23 @@ async function enhanceResume() {
     toast('请先粘贴简历内容');
     return;
   }
-  const targetPosition = document.getElementById('resumeTarget').value.trim();
-  const resultDiv = document.getElementById('resumeResult');
+
+  // 如果按钮是"优化简历"（非"重新优化"），且有缓存的优化结果，直接显示
+  if (_resumeLastAction !== 'enhance' && _resumeEnhanceDone) {
+    const cached = document.getElementById('resumeResultContent').getAttribute('data-enhance');
+    if (cached) {
+      showResumeResult('优化结果', renderMarkdown(cached));
+      _resumeLastAction = 'enhance';
+      updateResumeBtnLabels();
+      return;
+    }
+  }
+
   const contentDiv = document.getElementById('resumeResultContent');
-  
-  resultDiv.style.display = '';
-  contentDiv.innerHTML = '<div style="color:var(--dim)"><i class="ti ti-loader" style="animation:spin 1s linear infinite"></i> 正在优化简历…</div>';
+  showResumeResult('优化结果', '<div style="color:var(--dim)"><i class="ti ti-loader" style="animation:spin 1s linear infinite"></i> 正在优化简历…</div>');
 
   try {
+    const targetPosition = document.getElementById('resumeTarget').value.trim();
     const res = await fetch('/api/enhance_resume', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
@@ -4657,6 +4725,10 @@ async function enhanceResume() {
     }
 
     contentDiv.innerHTML = renderMarkdown(fullText);
+    contentDiv.setAttribute('data-enhance', fullText);
+    _resumeEnhanceDone = true;
+    _resumeLastAction = 'enhance';
+    updateResumeBtnLabels();
     saveResume();
   } catch (e) {
     contentDiv.innerHTML = `<div style="color:var(--red)">优化失败: ${e.message}</div>`;
