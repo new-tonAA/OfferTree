@@ -1,10 +1,10 @@
 """
 state_tree.py
-设计状态树管理器 —— 所有数据保存为本地 JSON 文件，无需数据库。
+求职匹配状态树管理器 —— 所有数据保存为本地 JSON 文件，无需数据库。
 
 核心数据结构：
-  每个节点（DesignNode）= 一次用户输入 + 生成的图片 + 用户选中的图
-  树的路径 root → ... → current_node = 拼接 prompt 的上下文链
+  每个节点（DesignNode）= 一次用户输入 + 生成的回答 + 用户选中的回答
+  树的路径 root → ... → current_node = 拼接上下文的求职匹配讨论链
 """
 
 import json

@@ -3,10 +3,13 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ArchAI — 建筑设计工作台</title>
+<title>OfferTree — AI求职智能匹配</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Sans:wght@300;400;500&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.x/tabler-icons.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css">
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"></script>
 <style>
 /* ── Reset & Base ───────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -46,7 +49,35 @@
   --muted:  #666666;
   --dim:    #999999;
   --bluel:  rgba(91,143,191,0.1);
+  --code-bg:#f0f0f0;
 }
+/* 浅色主题：覆盖 hljs 深色代码块背景 */
+.theme-light pre code.hljs,
+.theme-light .a-text pre code,
+.theme-light .prompt-modal-body pre code { background: #f6f8fa !important; color: #24292e !important; }
+.theme-light .hljs-keyword,
+.theme-light .hljs-selector-tag,
+.theme-light .hljs-title,
+.theme-light .hljs-section,
+.theme-light .hljs-doctag,
+.theme-light .hljs-name,
+.theme-light .hljs-strong { color: #d73a49 !important; }
+.theme-light .hljs-string,
+.theme-light .hljs-attr,
+.theme-light .hljs-template-variable { color: #032f62 !important; }
+.theme-light .hljs-comment,
+.theme-light .hljs-quote { color: #6a737d !important; }
+.theme-light .hljs-variable,
+.theme-light .hljs-template-variable,
+.theme-light .hljs-tag,
+.theme-light .hljs-number,
+.theme-light .hljs-literal,
+.theme-light .hljs-type,
+.theme-light .hljs-params,
+.theme-light .hljs-meta { color: #005cc5 !important; }
+.theme-light .hljs-built_in { color: #e36209 !important; }
+.theme-light .a-text code,
+.theme-light .prompt-modal-body code { background: var(--code-bg) !important; color: var(--text) !important; }
 
 /* 午夜主题 */
 .theme-midnight {
@@ -113,6 +144,108 @@ body.resizing { cursor: col-resize; user-select: none; }
 .img-area { flex: 1; overflow-y: auto; padding: 14px; }
 .img-area::-webkit-scrollbar { width: 4px; }
 .img-area::-webkit-scrollbar-thumb { background: var(--bg4); border-radius: 2px; }
+.text-display { min-height: 100%; padding: 8px 4px; font-size: 14px; line-height: 1.8; word-break: break-word; color: var(--text); }
+.text-display .q-block { margin-bottom: 16px; padding: 12px 16px; background: var(--bg3); border-radius: var(--radius); border-left: 3px solid var(--accent); }
+.text-display .q-label { font-size: 11px; color: var(--accent); font-weight: 500; margin-bottom: 4px; }
+.text-display .q-text { color: var(--text); }
+.text-display .a-block { margin-bottom: 20px; padding: 4px 0; transition: all .15s; }
+.text-display .a-block.answer-selected { background: rgba(46,160,67,0.06); border-radius: var(--radius); padding: 8px 12px; border-left: 3px solid var(--green); }
+.text-display .a-label { font-size: 11px; color: var(--green); font-weight: 500; margin-bottom: 6px; display: flex; align-items: center; gap: 8px; }
+.answer-select-btn { font-size: 10px; padding: 2px 8px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg3); color: var(--dim); cursor: pointer; transition: all .15s; }
+.answer-select-btn:hover { border-color: var(--green); color: var(--green); }
+.answer-select-btn.active { background: var(--green); color: #fff; border-color: var(--green); }
+.node-images-section { display: grid; gap: 8px; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); margin-top: 12px; }
+.text-display .a-text { color: var(--text); }
+.text-display .a-text h1,.text-display .a-text h2,.text-display .a-text h3,.text-display .a-text h4 { margin: 12px 0 6px; line-height: 1.4; }
+.text-display .a-text h1 { font-size: 18px; }
+.text-display .a-text h2 { font-size: 16px; border-bottom: 1px solid var(--line); padding-bottom: 4px; }
+.text-display .a-text h3 { font-size: 15px; }
+.text-display .a-text p { margin: 6px 0; }
+.text-display .a-text ul,.text-display .a-text ol { margin: 6px 0; padding-left: 20px; }
+.text-display .a-text li { margin: 2px 0; }
+.text-display .a-text code { font-family: 'JetBrains Mono', monospace; font-size: 12px; background: var(--bg3); padding: 2px 5px; border-radius: 3px; }
+.text-display .a-text pre { margin: 8px 0; border-radius: 6px; overflow-x: auto; }
+.text-display .a-text pre code { display: block; padding: 12px 14px; background: #1a1b26; font-size: 12px; line-height: 1.5; }
+.text-display .a-text blockquote { margin: 6px 0; padding: 4px 12px; border-left: 3px solid var(--accent); color: var(--dim); }
+.text-display .a-text table { border-collapse: collapse; margin: 8px 0; font-size: 13px; }
+.text-display .a-text th,.text-display .a-text td { border: 1px solid var(--line); padding: 4px 10px; }
+.text-display .a-text th { background: var(--bg3); }
+.text-display .a-text hr { border: none; border-top: 1px solid var(--line); margin: 10px 0; }
+.text-display .a-text strong { font-weight: 600; }
+.text-display .a-text a { color: var(--accent); text-decoration: none; }
+.text-display .cursor-blink { display: inline-block; width: 2px; height: 1em; background: var(--accent); animation: blink 1s step-end infinite; vertical-align: text-bottom; margin-left: 1px; }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+
+/* ── Guided Chat Styles ────────────────────── */
+.guided-chat .guided-q-block, .guided-chat .guided-a-block {
+  padding: 12px 16px; margin: 6px 12px; border-radius: 10px; max-width: 90%;
+}
+.guided-chat .guided-q-block {
+  background: var(--bg3); border: 1px solid var(--line); margin-right: auto;
+}
+.guided-chat .guided-q-block.guided-current {
+  border-color: var(--accent); box-shadow: 0 0 0 1px var(--acl);
+}
+.guided-chat .guided-q-block.guided-result {
+  border-color: var(--green); box-shadow: 0 0 0 1px var(--greenl); max-width: 95%;
+}
+.guided-chat .guided-a-block {
+  background: var(--acl); border: 1px solid rgba(200,169,110,0.3); margin-left: auto; text-align: right;
+}
+.guided-ai-label, .guided-user-label {
+  font-size: 10px; font-weight: 600; margin-bottom: 4px; opacity: 0.6; text-transform: uppercase; letter-spacing: 0.5px;
+}
+.guided-ai-label { color: var(--accent); }
+.guided-user-label { color: var(--text); }
+.guided-q-text, .guided-a-text {
+  font-size: 14px; line-height: 1.6; color: var(--text);
+}
+.guided-result-text {
+  font-size: 14px; line-height: 1.7; color: var(--text); text-align: left;
+}
+.guided-result-text h1,.guided-result-text h2,.guided-result-text h3 { margin: 10px 0 6px; line-height: 1.4; }
+.guided-result-text h2 { font-size: 16px; border-bottom: 1px solid var(--line); padding-bottom: 4px; }
+.guided-options {
+  display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px;
+}
+.guided-opt-btn {
+  padding: 8px 16px; border-radius: 8px; border: 1px solid var(--line2);
+  background: var(--bg4); color: var(--text); font-size: 13px; font-family: var(--sans);
+  cursor: pointer; transition: all 0.2s; white-space: nowrap;
+}
+.guided-opt-btn:hover {
+  background: var(--acl); border-color: var(--accent); color: var(--accent);
+}
+.guided-text-input input:focus {
+  border-color: var(--accent); outline: none;
+}
+/* ── Guided Sidebar Tree ─────────────────────── */
+.gtree-node { margin-left: 0; }
+.gtree-node .gtree-node { margin-left: 16px; }
+.gtree-row {
+  display: flex; align-items: flex-start; padding: 4px 6px; border-radius: 6px;
+  cursor: pointer; transition: background 0.15s; margin-bottom: 2px; gap: 6px;
+}
+.gtree-row:hover { background: var(--bg3); }
+.gtree-dot {
+  width: 8px; height: 8px; border-radius: 50%; margin-top: 5px; flex-shrink: 0;
+  background: var(--line2); transition: background 0.2s;
+}
+.gtree-dot.on-path { background: var(--accent); }
+.gtree-dot.current { background: var(--green); box-shadow: 0 0 0 2px var(--greenl); }
+.gtree-dot.selected { background: var(--accent); }
+.gtree-dot.unselected { background: var(--line2); }
+.gtree-label {
+  font-size: 12px; line-height: 1.4; color: var(--text); word-break: break-word;
+}
+.gtree-label .gtree-q { color: var(--dim); font-size: 11px; display: block; margin-bottom: 2px; }
+.gtree-label .gtree-a { color: var(--text); font-weight: 500; }
+.gtree-label .gtree-opt-text { color: var(--dim); font-size: 12px; }
+.gtree-label .gtree-opt-text.active { color: var(--accent); font-weight: 600; }
+.gtree-label .gtree-opt-text.custom-opt { font-style: italic; }
+.gtree-multi-connector {
+  margin-left: 14px; border-left: 2px solid var(--accent); margin-top: -2px; margin-bottom: 2px;
+}
 .img-grid { display: grid; gap: 10px; }
 .g1 { grid-template-columns: 1fr; }
 .g2 { grid-template-columns: 1fr 1fr; }
@@ -489,13 +622,24 @@ textarea#userInput::placeholder { color: var(--dim); }
 .prompt-modal-body {
   padding: 14px;
   overflow: auto;
-  white-space: pre-wrap;
   word-break: break-word;
-  font-family: var(--mono);
-  font-size: 12px;
-  line-height: 1.6;
+  font-size: 13px;
+  line-height: 1.7;
   color: var(--text);
 }
+.prompt-modal-body h1,.prompt-modal-body h2,.prompt-modal-body h3 { margin: 10px 0 4px; }
+.prompt-modal-body h1 { font-size: 17px; }
+.prompt-modal-body h2 { font-size: 15px; }
+.prompt-modal-body h3 { font-size: 14px; }
+.prompt-modal-body p { margin: 4px 0; }
+.prompt-modal-body ul,.prompt-modal-body ol { padding-left: 20px; margin: 4px 0; }
+.prompt-modal-body code { font-family: 'JetBrains Mono', monospace; font-size: 12px; background: var(--bg3); padding: 2px 4px; border-radius: 3px; }
+.prompt-modal-body pre { margin: 6px 0; border-radius: 6px; overflow-x: auto; white-space: pre; }
+.prompt-modal-body pre code { display: block; padding: 10px 12px; background: #1a1b26; }
+.prompt-modal-body blockquote { margin: 4px 0; padding: 4px 10px; border-left: 3px solid var(--accent); color: var(--dim); }
+.prompt-modal-body table { border-collapse: collapse; margin: 6px 0; font-size: 12px; }
+.prompt-modal-body th,.prompt-modal-body td { border: 1px solid var(--line); padding: 3px 8px; }
+.prompt-modal-body th { background: var(--bg3); }
 
 /* ── Side panel ─────────────────────────────── */
 .side { background: var(--bg2); border-left: 1px solid var(--line); display: flex; flex-direction: column; overflow: hidden; }
@@ -552,6 +696,14 @@ textarea#userInput::placeholder { color: var(--dim); }
 .hist-prompt-toggle { font-size: 10px; color: var(--muted); cursor: pointer; text-decoration: underline; margin-top: 2px; }
 .hist-prompt { font-size: 10px; color: var(--dim); font-family: var(--mono); margin-top: 4px; line-height: 1.5; display: none; }
 .hist-prompt.show { display: block; }
+.hist-answer { font-family: var(--sans); }
+.hist-answer h1,.hist-answer h2,.hist-answer h3,.hist-answer h4 { margin: 6px 0 4px; }
+.hist-answer p { margin: 4px 0; }
+.hist-answer pre { background: var(--card); border-radius: 4px; padding: 8px; overflow-x: auto; }
+.hist-answer code { font-family: var(--mono); font-size: 10px; }
+.hist-images { display: flex; gap: 4px; margin-top: 4px; flex-wrap: wrap; }
+.hist-thumb { width: 48px; height: 48px; border-radius: 4px; overflow: hidden; flex-shrink: 0; border: 1px solid var(--border); }
+.hist-thumb img { width: 100%; height: 100%; object-fit: cover; }
 .hist-attached-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -729,13 +881,13 @@ textarea#userInput::placeholder { color: var(--dim); }
 
 <div class="app">
   <div class="titlebar">
-    <span class="logo" style="cursor:pointer" onclick="showSettingsModal()">DesignTree</span>
+    <span class="logo" style="cursor:pointer" onclick="showSettingsModal()">OfferTree</span>
     <button class="cfg-sel" style="width:auto;padding:5px 10px;font-size:11px;margin-left:8px" id="projBtn" onclick="handleProjBtn()">
-      新建项目
+      新建求职
     </button>
     <div class="tbar-right">
       <button class="cfg-sel" style="width:auto;padding:5px 10px;font-size:11px" id="imgPlatformBtn" onclick="showImgPlatformModal()">
-        <span id="imgPlatformLabel">图像平台</span>
+        <span id="imgPlatformLabel">画图平台</span>
       </button>
       <button class="cfg-sel" style="width:auto;padding:5px 10px;font-size:11px" id="txtPlatformBtn" onclick="showTxtPlatformModal()">
         <span id="txtPlatformLabel">文本平台</span>
@@ -748,19 +900,19 @@ textarea#userInput::placeholder { color: var(--dim); }
     <div class="main">
       <div class="topbar">
         <div class="breadcrumb" id="breadcrumb">—</div>
-        <div class="n-btns">
+        <div class="n-btns" id="nBtns" style="display:none">
           <span class="n-lbl">张数</span>
-          <button class="nb" onclick="setN(this,1,'g1')">1</button>
+          <button class="nb on" onclick="setN(this,1,'g1')">1</button>
           <button class="nb" onclick="setN(this,2,'g2')">2</button>
-          <button class="nb on" onclick="setN(this,4,'g4')">4</button>
-          <button class="nb" id="customNBtn" onclick="showCustomN()">更多</button>
+          <button class="nb" onclick="setN(this,4,'g4')">4</button>
+          <button class="nb" id="customNBtn" onclick="showCustomN()">…</button>
         </div>
       </div>
 
       <div class="img-area">
-        <div class="img-grid g4" id="imgGrid">
-          <div style="grid-column:1/-1;text-align:center;padding:60px 0;color:var(--dim);font-size:13px">
-            输入你的设计需求，点击「生成」开始
+        <div id="imgGrid" class="text-display">
+          <div style="text-align:center;padding:60px 0;color:var(--dim);font-size:13px">
+      点击「新建项目」开始引导式求职匹配
           </div>
         </div>
       </div>
@@ -770,35 +922,26 @@ textarea#userInput::placeholder { color: var(--dim); }
           <div class="input-row composer-main" style="flex-direction:column">
             <!-- 输入框 -->
             <div class="input-wrap composer-input" style="width:100%">
-              <textarea id="userInput" placeholder="描述你的设计需求或改进方向…（可拖入图片）" rows="2"
+              <textarea id="userInput" placeholder="请输入求职相关问题，例如岗位匹配、简历优化、面试准备、职业规划…" rows="2"
                 onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();generate()}"></textarea>
             </div>
             <!-- 工具栏在下方 -->
             <div class="footer-toolbar">
               <div class="toolbar-left">
-                <button id="uploadBtn" class="toolbar-btn" onclick="document.getElementById('promptImageUpload').click()">
-                  📷 图片
-                </button>
                 <button id="voiceBtn" class="toolbar-btn" onclick="startVoiceInput()">
                   🎙 语音
                 </button>
-                <button id="polishBtn" class="toolbar-btn" onclick="polishPrompt()">
-                  ✨ 润色
+                <button id="modeBtn" class="toolbar-btn" onclick="toggleMode()" title="切换图片/文字模式">
+                  🖼 图片模式
                 </button>
-                <div id="polishStatus" class="polish-status" style="display:none">
-                  <span id="polishStatusText"></span>
-                  <button class="status-btn" onclick="cancelPolish()">取消</button>
-                  <button class="status-btn" onclick="rePolish()">重试</button>
-                </div>
               </div>
               <div style="display:flex;align-items:center;gap:8px">
                 <span id="promptImageNames" class="prompt-image-names" style="display:none"></span>
                 <button class="send-btn toolbar-btn" id="sendBtn" onclick="generate()">
-                  🚀 生成
+                  💬 提问
                 </button>
               </div>
             </div>
-            <input type="file" id="promptImageUpload" accept="image/*" multiple style="display:none" onchange="handlePromptImages(this)">
           </div>
         </div>
       </div>
@@ -809,45 +952,64 @@ textarea#userInput::placeholder { color: var(--dim); }
     <!-- Side panel -->
     <div class="side">
       <div class="side-tabs">
-        <button class="stab on" onclick="switchTab(this,'tabTree')"><i class="ti ti-hierarchy-2"></i> 状态树</button>
+        <button class="stab on" onclick="switchTab(this,'tabTree')"><i class="ti ti-hierarchy-2"></i> 匹配路径</button>
         <button class="stab" onclick="switchTab(this,'tabHist')"><i class="ti ti-clock"></i> 历史</button>
-        <button class="stab" onclick="switchTab(this,'tabPicked')"><i class="ti ti-photo-check"></i> 已选图</button>
-        <button class="stab" onclick="switchTab(this,'tabStyle')"><i class="ti ti-palette"></i> 风格</button>
+        <button class="stab" onclick="switchTab(this,'tabResume')"><i class="ti ti-file-text"></i> 简历</button>
+        <button class="stab" onclick="switchTab(this,'tabStyle')"><i class="ti ti-topology-star-3"></i> 偏好</button>
       </div>
       <div class="side-body">
         <div class="panel on" id="tabTree">
-          <div class="sec">设计路径</div>
-          <div id="treeContainer"></div>
-          <div class="sec" style="margin-top:16px">本次prompt关键词</div>
-          <div class="path-tags" id="pathTags"></div>
-          <div class="sec" style="margin-top:16px">附带图片</div>
-          <div id="treeAttachedContainer"></div>
+          <div class="sec">引导路径</div>
+          <div id="guidedTreeContainer"></div>
+          <div id="legacyTreeSection" style="display:none">
+            <div class="sec">匹配路径</div>
+            <div id="treeContainer"></div>
+            <div class="sec" style="margin-top:16px">匹配关键词</div>
+            <div class="path-tags" id="pathTags"></div>
+          </div>
         </div>
         <div class="panel" id="tabHist">
-          <div class="sec">修改历史</div>
+          <div class="sec">对话历史</div>
           <div id="histContainer"></div>
           <div class="sec" style="margin-top:14px">会话文件</div>
           <div id="savePath" style="font-size:10px;color:var(--dim);font-family:var(--mono);word-break:break-all;line-height:1.6"></div>
         </div>
-        <div class="panel" id="tabPicked">
-          <div class="sec">已选图片</div>
-          <div id="pickedContainer"></div>
+        <div class="panel" id="tabResume">
+          <div class="sec">简历评估与优化</div>
+          <div style="font-size:12px;color:var(--muted);margin-bottom:8px;line-height:1.5">
+            粘贴简历内容，AI帮你评估匹配度和优化建议
+          </div>
+          <label style="font-size:11px;color:var(--dim);display:block;margin-bottom:4px">目标岗位（可选）</label>
+          <input id="resumeTarget" type="text" placeholder="例如：前端开发工程师" 
+            style="width:100%;padding:7px 10px;border-radius:6px;border:1px solid var(--line2);background:var(--bg3);color:var(--text);font-size:12px;font-family:var(--sans);margin-bottom:8px;outline:none" />
+          <label style="font-size:11px;color:var(--dim);display:block;margin-bottom:4px">简历内容</label>
+          <textarea id="resumeText" placeholder="在此粘贴你的简历内容…"
+            style="width:100%;min-height:150px;max-height:300px;resize:vertical;padding:8px 10px;border-radius:6px;border:1px solid var(--line2);background:var(--bg3);color:var(--text);font-size:12px;font-family:var(--sans);line-height:1.5;outline:none;margin-bottom:8px"></textarea>
+          <div style="display:flex;gap:6px;margin-bottom:12px">
+            <button onclick="evaluateResume()" class="toolbar-btn" style="flex:1;font-size:11px;padding:8px 10px">
+              <i class="ti ti-search"></i> 评估匹配度
+            </button>
+            <button onclick="enhanceResume()" class="toolbar-btn" style="flex:1;font-size:11px;padding:8px 10px">
+              <i class="ti ti-wand"></i> 优化简历
+            </button>
+          </div>
+          <div id="resumeResult" style="display:none">
+            <div class="sec">评估结果</div>
+            <div id="resumeResultContent" style="font-size:13px;line-height:1.7;color:var(--text);max-height:400px;overflow-y:auto;padding:8px;background:var(--bg3);border-radius:6px;border:1px solid var(--line)"></div>
+          </div>
         </div>
         <div class="panel" id="tabStyle">
-          <div class="sec">风格偏好（自动学习）</div>
+          <div class="sec">求职偏好（自动学习）</div>
           <div id="styleContainer"></div>
-          <div class="sec" style="margin-top:14px">风格选择（勾选=要，未勾选=不要）</div>
-          <div class="style-pick-tip">点击后再点"应用选择"。未勾选标签会被视为"不要"。</div>
+          <div class="sec" style="margin-top:14px">主题选择（勾选=感兴趣，未勾选=不关注）</div>
+          <div class="style-pick-tip">点击选择感兴趣的求职方向，未勾选标签会被视为"不关注"。</div>
           <div id="stylePicker" class="style-pick-grid"></div>
           <div class="style-pick-actions">
             <button class="mini-btn ghost" onclick="resetStyleSelection()">清空勾选</button>
           </div>
-          <div class="sec" style="margin-top:14px">参考图</div>
-          <div class="ref-grid" id="refGrid"></div>
-          <button class="upload-ref-btn" onclick="document.getElementById('refUpload').click()"><i class="ti ti-plus"></i> 添加参考图</button>
           <div class="sec" style="margin-top:14px">模型记忆</div>
-          <div style="font-size:11px;color:var(--muted);margin-bottom:6px">每次生成时都会附加到提示词中（永久生效）</div>
-          <textarea id="modelMemory" class="model-memory-area" placeholder="输入永久附加的提示词，如：现代风格、高质量渲染、专业建筑效果图…" oninput="saveModelMemory()"></textarea>
+          <div style="font-size:11px;color:var(--muted);margin-bottom:6px">每次回答时都会附加到提示词中（永久生效）</div>
+          <textarea id="modelMemory" class="model-memory-area" placeholder="输入永久附加的提示词，如：侧重TCP/IP协议、强调实践应用、使用中文…" oninput="saveModelMemory()"></textarea>
         </div>
       </div>
     </div>
@@ -857,7 +1019,7 @@ textarea#userInput::placeholder { color: var(--dim); }
 <!-- Image Platform Modal -->
 <div id="imgPlatformModal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.7);z-index:1000;align-items:center;justify-content:center">
   <div style="background:var(--bg2);border:1px solid var(--line2);border-radius:12px;padding:24px;width:360px">
-    <div style="font-size:16px;font-weight:600;margin-bottom:16px;color:var(--text)">图像平台</div>
+    <div style="font-size:16px;font-weight:600;margin-bottom:16px;color:var(--text)">画图平台</div>
     <div class="cfg-grp" style="margin-bottom:12px">
       <div class="cfg-lbl">平台</div>
       <select class="cfg-sel" id="platformSelect" onchange="onPlatformChange()">
@@ -865,7 +1027,7 @@ textarea#userInput::placeholder { color: var(--dim); }
       </select>
     </div>
     <div class="cfg-grp" style="margin-bottom:16px">
-      <div class="cfg-lbl">图像模型</div>
+      <div class="cfg-lbl">画图模型</div>
       <select class="cfg-sel" id="imageModelSelect" onchange="onImageModelChange()">
         <option value="">请先选择平台</option>
       </select>
@@ -892,6 +1054,7 @@ textarea#userInput::placeholder { color: var(--dim); }
       <select class="cfg-sel" id="textModelSelect" onchange="onTextModelChange()">
         <option value="">请先选择平台</option>
       </select>
+      <input class="cfg-sel" id="textModelCustom" type="text" style="display:none;margin-top:4px" placeholder="输入接入点ID，如 ep-xxxxxxxx" oninput="currentTextModel=this.value;saveConfig()">
     </div>
     <div style="display:flex;gap:10px">
       <button class="cfg-sel" style="flex:1;cursor:pointer" onclick="hideTxtPlatformModal()">取消</button>
@@ -904,7 +1067,7 @@ textarea#userInput::placeholder { color: var(--dim); }
 <div id="projectModal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.7);z-index:1000;align-items:center;justify-content:center">
   <div style="background:var(--bg2);border:1px solid var(--line2);border-radius:12px;padding:18px;width:min(760px,92vw);max-height:80vh;display:flex;flex-direction:column">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-      <div style="font-size:16px;font-weight:600;color:var(--text)">切换项目（每个项目一棵树）</div>
+      <div style="font-size:16px;font-weight:600;color:var(--text)">切换求职项目（每个项目一棵树）</div>
       <button class="cfg-sel" style="width:auto;padding:4px 8px;font-size:11px" onclick="loadProjectList()">刷新</button>
     </div>
     <div id="projectList" style="overflow:auto;display:grid;gap:8px;padding-right:2px"></div>
@@ -915,7 +1078,7 @@ textarea#userInput::placeholder { color: var(--dim); }
   </div>
 </div>
 
-<input type="file" id="refUpload" accept="image/*" style="display:none" onchange="uploadRef(this)">
+
 <div class="toast" id="toast"></div>
 
 <!-- Input Modal -->
@@ -1035,7 +1198,7 @@ textarea#userInput::placeholder { color: var(--dim); }
 
     <div style="display:flex;gap:10px;margin-top:20px">
       <button style="flex:1;padding:10px 0;background:var(--bg4);border:1px solid var(--line2);border-radius:6px;color:var(--muted);font-size:12px;cursor:pointer" onclick="hideSettingsModal()">取消</button>
-      <button style="flex:1;padding:10px 0;background:var(--accent);border:none;border-radius:6px;color:var(--bg);font-size:12px;font-weight:500;cursor:pointer" onclick="saveSettings()">保存</button>
+      <button id="settingsSaveBtn" style="flex:1;padding:10px 0;background:var(--accent);border:none;border-radius:6px;color:var(--bg);font-size:12px;font-weight:500;cursor:pointer" onclick="saveSettings()">保存</button>
     </div>
   </div>
 </div>
@@ -1056,8 +1219,9 @@ textarea#userInput::placeholder { color: var(--dim); }
 
 <script>
 // ── State ────────────────────────────────────
-let currentN = 4;
-let currentGridClass = 'g4';
+let currentN = 1;
+let currentGridClass = 'g1';
+let imageMode = false;  // false=文字模式(默认), true=图片模式
 let selectedImageUrls = new Set();
 let currentNodeImageUrlSet = new Set();
 let currentPathNodeIdSet = new Set();
@@ -1068,8 +1232,685 @@ let currentTextPlatform = 'deepseek';
 let currentTextModel = 'deepseek-chat';
 let sideWidth = parseInt(localStorage.getItem('archai_side_width') || '288', 10);
 let nodePromptMap = {};
+let nodeAnswerMap = {};
+let nodeUserInputMap = {};
 let styleCandidatePool = [];
 let styleSelectedSet = new Set();
+let qaList = [];  // [{question, answer}] 文字模式下的问答记录
+
+// ── 引导式求职匹配状态 ──────────────────────────
+let guidedMode = true;       // 是否在引导模式
+let guidedStep = 0;          // 当前引导步骤
+let guidedCurrentNodeId = ''; // 当前引导树节点ID
+let guidedAnswers = [];      // [{question, answer}] 用户回答记录
+let guidedIsResult = false;  // 是否已到达匹配结果
+let guidedAIStep = 0;        // AI动态提问的步数
+let guidedTree = null;       // 前端引导树数据
+
+// ── 引导式对话渲染 ──────────────────────────────
+
+function renderGuidedChat() {
+  const grid = document.getElementById('imgGrid');
+  grid.className = 'text-display guided-chat';
+
+  let html = '';
+
+  // 欢迎消息
+  html += `<div class="guided-q-block">
+    <div class="guided-q-text">你好，我是 OfferTree，咨询求职问题，欢迎提问！</div>
+  </div>`;
+
+  // 渲染之前的问答
+  for (let i = 0; i < guidedAnswers.length; i++) {
+    const ga = guidedAnswers[i];
+    html += `<div class="guided-q-block">
+      <div class="guided-q-text">${escapeHtml(ga.question)}</div>
+    </div>`;
+    html += `<div class="guided-a-block">
+      <div class="guided-user-label"><i class="ti ti-user"></i></div>
+      <div class="guided-a-text">${escapeHtml(ga.answer)}</div>
+    </div>`;
+  }
+
+  grid.innerHTML = html;
+  grid.scrollTop = grid.scrollHeight;
+}
+
+function showGuidedQuestion(question, options, inputType, multiSelect, maxSelect) {
+  const grid = document.getElementById('imgGrid');
+  grid.className = 'text-display guided-chat';
+
+  let html = '';
+
+  // 欢迎消息
+  html += `<div class="guided-q-block">
+    <div class="guided-q-text">你好，我是 OfferTree，咨询求职问题，欢迎提问！</div>
+  </div>`;
+
+  // 渲染之前的问答
+  for (let i = 0; i < guidedAnswers.length; i++) {
+    const ga = guidedAnswers[i];
+    html += `<div class="guided-q-block">
+      <div class="guided-q-text">${escapeHtml(ga.question)}</div>
+    </div>`;
+    html += `<div class="guided-a-block">
+      <div class="guided-user-label"><i class="ti ti-user"></i></div>
+      <div class="guided-a-text">${escapeHtml(ga.answer)}</div>
+    </div>`;
+  }
+
+  // 渲染当前问题
+  html += `<div class="guided-q-block guided-current">
+    <div class="guided-q-text">${renderMarkdown(question)}</div>`;
+
+  // 选项按钮
+  if (options && options.length > 0) {
+    html += `<div class="guided-options">`;
+    if (multiSelect) {
+      html += `<div style="font-size:11px;color:var(--muted);margin-bottom:6px">可选择 ${maxSelect} 项</div>`;
+      options.forEach((opt, idx) => {
+        html += `<button class="guided-opt-btn guided-opt-check" data-value="${escapeHtml(opt)}" onclick="toggleGuidedOption(this)">${escapeHtml(opt)}</button>`;
+      });
+      html += `<button class="guided-opt-btn guided-opt-confirm" onclick="confirmMultiSelect()" style="margin-top:8px;background:var(--accent);color:#000;font-weight:600">确认选择</button>`;
+    } else {
+      options.forEach((opt, idx) => {
+        html += `<button class="guided-opt-btn" onclick="selectGuidedOption('${escapeHtml(opt)}')">${escapeHtml(opt)}</button>`;
+      });
+    }
+    html += `</div>`;
+  }
+
+  // 文本输入（如果是text类型或select_or_text）
+  if (inputType === 'text' || inputType === 'select_or_text' || !options || options.length === 0) {
+    const placeholder = inputType === 'text' ? '请输入你的回答…' : '或者自己输入…';
+    html += `<div class="guided-text-input">
+      <div style="display:flex;gap:6px;margin-top:8px">
+        <input type="text" id="guidedTextInput" placeholder="${placeholder}"
+          style="flex:1;padding:8px 12px;border-radius:6px;border:1px solid var(--line2);background:var(--bg3);color:var(--text);font-size:13px;font-family:var(--sans);outline:none"
+          onkeydown="if(event.key==='Enter'){submitGuidedText()}" />
+        <button onclick="submitGuidedText()" style="padding:8px 16px;border-radius:6px;background:var(--accent);color:#000;font-weight:600;font-size:12px;cursor:pointer;border:none">发送</button>
+      </div>
+    </div>`;
+  }
+
+  // AI深入了解阶段，显示"查看匹配结果"按钮（至少3轮后）
+  if (guidedAIStep >= 3) {
+    html += `<div style="margin-top:10px">
+      <button class="guided-opt-btn" onclick="finishGuided()" style="background:var(--green);color:#fff;font-weight:600;border-color:var(--green)">
+        🎯 查看匹配结果
+      </button>
+    </div>`;
+  }
+
+  html += `</div>`;
+
+  grid.innerHTML = html;
+  grid.scrollTop = grid.scrollHeight;
+}
+
+function showGuidedResultStreaming(partialText) {
+  const grid = document.getElementById('imgGrid');
+  grid.className = 'text-display guided-chat';
+
+  let html = '';
+
+  // 欢迎消息
+  html += `<div class="guided-q-block">
+    <div class="guided-q-text">你好，我是 OfferTree，咨询求职问题，欢迎提问！</div>
+  </div>`;
+
+  // 渲染之前的问答
+  for (let i = 0; i < guidedAnswers.length; i++) {
+    const ga = guidedAnswers[i];
+    html += `<div class="guided-q-block">
+      <div class="guided-q-text">${escapeHtml(ga.question)}</div>
+    </div>`;
+    html += `<div class="guided-a-block">
+      <div class="guided-user-label"><i class="ti ti-user"></i></div>
+      <div class="guided-a-text">${escapeHtml(ga.answer)}</div>
+    </div>`;
+  }
+
+  // 匹配结果
+  html += `<div class="guided-q-block guided-result">
+    <div class="guided-ai-label"><i class="ti ti-robot"></i> 匹配结果</div>
+    <div class="guided-result-text">${renderMarkdown(partialText)}<span class="cursor-blink"></span></div>
+    <div class="guided-result-actions" style="margin-top:12px;display:none">
+      <button onclick="restartGuided()" class="guided-opt-btn" style="margin-right:6px">🔄 重新匹配</button>
+      <button onclick="goToResumeTab()" class="guided-opt-btn" style="background:var(--accent);color:#000;font-weight:600">📝 评估简历</button>
+    </div>
+  </div>`;
+
+  grid.innerHTML = html;
+  grid.scrollTop = grid.scrollHeight;
+}
+
+function showGuidedResultFinal(text) {
+  const grid = document.getElementById('imgGrid');
+  grid.className = 'text-display guided-chat';
+
+  let html = '';
+
+  // 欢迎消息
+  html += `<div class="guided-q-block">
+    <div class="guided-q-text">你好，我是 OfferTree，咨询求职问题，欢迎提问！</div>
+  </div>`;
+
+  for (let i = 0; i < guidedAnswers.length; i++) {
+    const ga = guidedAnswers[i];
+    html += `<div class="guided-q-block">
+      <div class="guided-q-text">${escapeHtml(ga.question)}</div>
+    </div>`;
+    html += `<div class="guided-a-block">
+      <div class="guided-user-label"><i class="ti ti-user"></i></div>
+      <div class="guided-a-text">${escapeHtml(ga.answer)}</div>
+    </div>`;
+  }
+
+  html += `<div class="guided-q-block guided-result">
+    <div class="guided-ai-label"><i class="ti ti-robot"></i> 匹配结果</div>
+    <div class="guided-result-text">${renderMarkdown(text)}</div>
+    <div class="guided-result-actions" style="margin-top:12px">
+      <button onclick="restartGuided()" class="guided-opt-btn" style="margin-right:6px">🔄 重新匹配</button>
+      <button onclick="goToResumeTab()" class="guided-opt-btn" style="background:var(--accent);color:#000;font-weight:600">📝 评估简历</button>
+      <button onclick="continueChat()" class="guided-opt-btn" style="margin-left:6px">💬 继续追问</button>
+    </div>
+  </div>`;
+
+  grid.innerHTML = html;
+  grid.scrollTop = grid.scrollHeight;
+}
+
+// 多选逻辑
+let _multiSelected = new Set();
+
+function toggleGuidedOption(btn) {
+  const val = btn.getAttribute('data-value');
+  if (_multiSelected.has(val)) {
+    _multiSelected.delete(val);
+    btn.style.background = 'var(--bg4)';
+    btn.style.borderColor = 'var(--line2)';
+    btn.style.color = 'var(--text)';
+  } else {
+    _multiSelected.add(val);
+    btn.style.background = 'var(--acl)';
+    btn.style.borderColor = 'var(--accent)';
+    btn.style.color = 'var(--accent)';
+  }
+}
+
+function confirmMultiSelect() {
+  if (_multiSelected.size === 0) {
+    toast('请至少选择一项');
+    return;
+  }
+  const answers = Array.from(_multiSelected);
+  const combined = answers.join('、');
+  selectGuidedOption(combined, answers);
+}
+
+async function selectGuidedOption(option, multiAnswers) {
+  if (isGenerating) return;
+
+  // 记录回答
+  const currentQuestion = document.querySelector('.guided-current .guided-q-text')?.textContent || '';
+  guidedAnswers.push({
+    node_id: guidedCurrentNodeId,
+    question: currentQuestion,
+    answer: option,
+  });
+
+  _multiSelected.clear();
+
+  // 先渲染用户的选择
+  renderGuidedChat();
+
+  // 发送到后端
+  isGenerating = true;
+  const btn = document.getElementById('sendBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="ti ti-loader" style="animation:spin 1s linear infinite"></i> 分析中…';
+
+  try {
+    const res = await fetch('/api/guided/respond', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        current_node_id: guidedCurrentNodeId,
+        user_answer: option,
+        multi_answers: multiAnswers || null,
+      })
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      toast('请求失败: ' + (err.detail || res.status));
+      return;
+    }
+
+    // 检查是否是流式响应（匹配结果）
+    const isStreamResult = res.headers.get('X-Guided-Result') === 'true';
+
+    if (isStreamResult) {
+      // 流式匹配结果
+      guidedIsResult = true;
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder('utf-8');
+      let resultText = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        resultText += decoder.decode(value, { stream: true });
+        showGuidedResultStreaming(resultText);
+      }
+
+      showGuidedResultFinal(resultText);
+      await refreshState();
+      await loadGuidedTree();
+    } else {
+      // 普通JSON响应（下一个问题）
+      const data = await res.json();
+      guidedCurrentNodeId = data.node_id;
+      guidedStep++;
+
+      // 如果是AI动态生成的问题，增加计数器
+      if (data.ai_generate) {
+        guidedAIStep++;
+      }
+
+      // 更新引导树
+      if (data.tree) {
+        guidedTree = data.tree;
+        renderGuidedTree();
+      }
+
+      showGuidedQuestion(data.question, data.options, data.input_type, data.multi_select, data.max_select);
+      await refreshState();
+    }
+  } catch (e) {
+    toast('请求失败: ' + e.message);
+  } finally {
+    isGenerating = false;
+    btn.disabled = false;
+    btn.innerHTML = '💬 提问';
+  }
+}
+
+async function submitGuidedText() {
+  const inputEl = document.getElementById('guidedTextInput');
+  if (!inputEl) return;
+  const text = inputEl.value.trim();
+  if (!text) {
+    toast('请输入你的回答');
+    return;
+  }
+  await selectGuidedOption(text);
+}
+
+async function startGuidedFlow() {
+  // 重置状态
+  guidedMode = true;
+  guidedStep = 0;
+  guidedAnswers = [];
+  guidedIsResult = false;
+  guidedAIStep = 0;
+  guidedTree = null;
+  _multiSelected.clear();
+
+  const btn = document.getElementById('sendBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="ti ti-loader" style="animation:spin 1s linear infinite"></i> 初始化…';
+
+  try {
+    const res = await fetch('/api/guided/start', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ project_name: '求职匹配' })
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      toast('启动失败: ' + (err.detail || res.status));
+      return;
+    }
+
+    const data = await res.json();
+    guidedCurrentNodeId = data.node_id;
+
+    // 更新引导树
+    if (data.tree) {
+      guidedTree = data.tree;
+      renderGuidedTree();
+    }
+
+    showGuidedQuestion(data.question, data.options, data.input_type, data.multi_select, data.max_select);
+    await loadProjectList();
+  } catch (e) {
+    toast('启动失败: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '💬 提问';
+  }
+}
+
+function restartGuided() {
+  guidedAnswers = [];
+  guidedStep = 0;
+  guidedIsResult = false;
+  guidedAIStep = 0;
+  guidedTree = null;
+  startGuidedFlow();
+}
+
+// ── 引导树渲染与交互 ──────────────────────────
+
+async function loadGuidedTree() {
+  try {
+    const res = await fetch('/api/guided/tree');
+    if (res.ok) {
+      const data = await res.json();
+      if (data.tree) {
+        guidedTree = data.tree;
+        renderGuidedTree();
+      }
+    }
+  } catch (e) { /* ignore */ }
+}
+
+function renderGuidedTree() {
+  const container = document.getElementById('guidedTreeContainer');
+  if (!container) return;
+
+  if (!guidedTree) {
+    container.innerHTML = '<div style="font-size:12px;color:var(--dim);padding:8px">等待开始…</div>';
+    return;
+  }
+
+  container.innerHTML = '';
+  _renderTreeNode(container, guidedTree);
+}
+
+function _renderTreeNode(container, node) {
+  if (!node) return;
+
+  if (node.type === 'option') {
+    _renderOptionNode(container, node);
+  } else {
+    _renderQuestionNode(container, node);
+  }
+}
+
+function _renderQuestionNode(container, node) {
+  const div = document.createElement('div');
+  div.className = 'gtree-node';
+  div.setAttribute('data-id', node.id);
+
+  const row = document.createElement('div');
+  row.className = 'gtree-row';
+
+  const isCurrent = node.is_current;
+  let dotClass = isCurrent ? 'current' : 'on-path';
+  const label = node.label || '';
+
+  row.innerHTML = `
+    <div class="gtree-dot ${dotClass}"></div>
+    <div class="gtree-label">
+      ${label ? `<span class="gtree-q">${escapeHtml(label)}</span>` : ''}
+    </div>`;
+
+  // 点击问题节点 → 导航回该问题
+  row.onclick = () => {
+    if (node.is_current) return;
+    _navigateToTreeNode(node);
+  };
+
+  div.appendChild(row);
+
+  // 渲染选项子节点
+  if (node.children && node.children.length > 0) {
+    node.children.forEach(optNode => {
+      _renderTreeNode(div, optNode);
+    });
+  }
+
+  // 多选时，渲染 multi_next（被选中的选项连接到下一题）
+  if (node.multi_next) {
+    const connector = document.createElement('div');
+    connector.className = 'gtree-multi-connector';
+    _renderTreeNode(connector, node.multi_next);
+    div.appendChild(connector);
+  }
+
+  container.appendChild(div);
+}
+
+function _renderOptionNode(container, node) {
+  const div = document.createElement('div');
+  div.className = 'gtree-node';
+  div.setAttribute('data-id', node.id);
+
+  const row = document.createElement('div');
+  row.className = 'gtree-row';
+
+  const dotClass = node.selected ? 'selected' : 'unselected';
+  const textClass = 'gtree-opt-text' + (node.selected ? ' active' : '') + (node.is_custom ? ' custom-opt' : '');
+
+  row.innerHTML = `
+    <div class="gtree-dot ${dotClass}"></div>
+    <div class="gtree-label">
+      <span class="${textClass}">${escapeHtml(node.label)}</span>
+    </div>`;
+
+  // 点击未选中的选项 → 分支到该选项
+  if (!node.selected) {
+    row.style.cursor = 'pointer';
+    row.onclick = () => {
+      _branchToOption(node.question_id, node.label);
+    };
+  }
+
+  div.appendChild(row);
+
+  // 选中的选项展开子树（下一题）
+  if (node.selected && node.children && node.children.length > 0) {
+    node.children.forEach(child => {
+      _renderTreeNode(div, child);
+    });
+  }
+
+  container.appendChild(div);
+}
+
+async function _navigateToTreeNode(node) {
+  // 在引导聊天区跳到该节点的问题
+  if (isGenerating) return;
+  isGenerating = true;
+  const btn = document.getElementById('sendBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="ti ti-loader" style="animation:spin 1s linear infinite"></i> 跳转中…';
+
+  try {
+    const res = await fetch('/api/guided/navigate', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ node_id: node.id })
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      toast('跳转失败: ' + (err.detail || res.status));
+      return;
+    }
+
+    const data = await res.json();
+
+    // 更新引导树
+    if (data.tree) {
+      guidedTree = data.tree;
+      renderGuidedTree();
+    }
+
+    // 重建guidedAnswers
+    guidedAnswers = [];
+    _rebuildAnswersFromTree(guidedTree);
+    guidedCurrentNodeId = data.node_id;
+    guidedIsResult = false;
+
+    // 更新AI步骤计数
+    guidedAIStep = guidedAnswers.length;
+
+    // 显示该节点的问题
+    showGuidedQuestion(data.question, data.options, data.input_type, data.multi_select, data.max_select);
+
+    await refreshState();
+  } catch (e) {
+    toast('跳转失败: ' + e.message);
+  } finally {
+    isGenerating = false;
+    btn.disabled = false;
+    btn.innerHTML = '💬 提问';
+  }
+}
+
+async function _branchToOption(nodeId, newOption) {
+  if (isGenerating) return;
+  isGenerating = true;
+  const btn = document.getElementById('sendBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="ti ti-loader" style="animation:spin 1s linear infinite"></i> 分支中…';
+
+  try {
+    const res = await fetch('/api/guided/branch', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ node_id: nodeId, new_option: newOption })
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      toast('分支失败: ' + (err.detail || res.status));
+      return;
+    }
+
+    const data = await res.json();
+
+    // 更新引导树
+    if (data.tree) {
+      guidedTree = data.tree;
+      renderGuidedTree();
+    }
+
+    // 更新引导回答（基于新路径）
+    guidedAnswers = [];
+    // 从树中重建guidedAnswers
+    _rebuildAnswersFromTree(guidedTree);
+    guidedCurrentNodeId = data.node_id;
+
+    // 更新AI步骤计数
+    guidedAIStep = guidedAnswers.length;
+
+    // 显示新问题
+    guidedIsResult = false;
+    showGuidedQuestion(data.question, data.options, data.input_type, data.multi_select, data.max_select);
+
+    await refreshState();
+  } catch (e) {
+    toast('分支失败: ' + e.message);
+  } finally {
+    isGenerating = false;
+    btn.disabled = false;
+    btn.innerHTML = '💬 提问';
+  }
+}
+
+function _rebuildAnswersFromTree(node) {
+  if (!node || node.type !== 'question') return;
+  const q = node.label || '';
+  // 单选：找选中的选项
+  if (!node.multi_select && node.children) {
+    const selOpt = node.children.find(c => c.type === 'option' && c.selected);
+    if (q && selOpt) {
+      guidedAnswers.push({ question: q, answer: selOpt.label });
+      // 递归选项的子节点（下一题）
+      if (selOpt.children && selOpt.children.length > 0) {
+        selOpt.children.forEach(child => _rebuildAnswersFromTree(child));
+      }
+    }
+  }
+  // 多选：用selected_option（组合文本）
+  if (node.multi_select && node.selected_option && q) {
+    guidedAnswers.push({ question: q, answer: node.selected_option });
+    if (node.multi_next) {
+      _rebuildAnswersFromTree(node.multi_next);
+    }
+  }
+}
+
+function goToResumeTab() {
+  // 切换到简历评估标签页
+  const resumeTab = document.querySelector('.stab[onclick*="tabResume"]');
+  if (resumeTab) switchTab(resumeTab, 'tabResume');
+}
+
+function continueChat() {
+  // 从引导模式切换到自由对话模式
+  guidedMode = false;
+  qaList = [];
+  const grid = document.getElementById('imgGrid');
+  grid.className = 'text-display';
+  showEmptyGrid();
+  // 切换侧边栏树
+  const guidedTreeContainer = document.getElementById('guidedTreeContainer');
+  const legacyTreeSection = document.getElementById('legacyTreeSection');
+  if (guidedTreeContainer) guidedTreeContainer.style.display = 'none';
+  if (legacyTreeSection) legacyTreeSection.style.display = '';
+  toast('已切换到自由对话模式，你可以继续追问');
+}
+
+// ── 结束引导匹配（AI动态提问阶段结束后请求结果） ──
+async function finishGuided() {
+  if (isGenerating) return;
+  isGenerating = true;
+  const btn = document.getElementById('sendBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="ti ti-loader" style="animation:spin 1s linear infinite"></i> 生成匹配…';
+
+  try {
+    const res = await fetch('/api/guided/finish', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      toast('生成匹配结果失败: ' + (err.detail || res.status));
+      return;
+    }
+
+    guidedIsResult = true;
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder('utf-8');
+    let resultText = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      resultText += decoder.decode(value, { stream: true });
+      showGuidedResultStreaming(resultText);
+    }
+
+    showGuidedResultFinal(resultText);
+    await refreshState();
+    await loadGuidedTree();
+  } catch (e) {
+    toast('生成匹配结果失败: ' + e.message);
+  } finally {
+    isGenerating = false;
+    btn.disabled = false;
+    btn.innerHTML = '💬 提问';
+  }
+}
 
 // Persistence keys
 const STATE_KEY = 'archai_session_path';
@@ -1129,6 +1970,28 @@ function loadConfig() {
   }
 }
 
+// Validate text model against platform's available models
+function validateTextConfig() {
+  if (!platformsData[currentTextPlatform]) {
+    currentTextPlatform = 'v3';
+    currentTextModel = 'gpt-4o-mini';
+    return;
+  }
+  const textModels = platformsData[currentTextPlatform].models?.text || [];
+  if (textModels.length === 0) {
+    // 火山引擎等需要接入点ID的平台，允许自定义输入但提示用户
+    if (!currentTextModel || !currentTextModel.startsWith('ep-')) {
+      // 不是接入点ID格式，回退到 v3
+      currentTextPlatform = 'v3';
+      currentTextModel = 'gpt-4o-mini';
+    }
+    return;
+  }
+  if (!textModels.includes(currentTextModel)) {
+    currentTextModel = textModels[0];
+  }
+}
+
 // Save input to localStorage
 function saveInput() {
   const input = document.getElementById('userInput')?.value || '';
@@ -1166,6 +2029,8 @@ async function init() {
   const platformsRes = await fetch('/api/platforms').catch(() => null);
   if (platformsRes) {
     platformsData = await platformsRes.json();
+    // 校验 localStorage 中的配置是否仍然有效
+    validateTextConfig();
     const platformEl = document.getElementById('platformSelect');
     const textPlatformEl = document.getElementById('textPlatformSelect');
     platformEl.innerHTML = Object.entries(platformsData).map(([k, v]) =>
@@ -1209,12 +2074,23 @@ async function init() {
     if (platformsData[currentTextPlatform]) {
       const models = platformsData[currentTextPlatform].models;
       const textEl = document.getElementById('textModelSelect');
+      const customEl = document.getElementById('textModelCustom');
       const textModels = models.text || [];
       textEl.innerHTML = textModels.map(m => `<option value="${m}">${getModelIcon(m)} ${m}</option>`).join('');
       if (textModels.length) {
+        textEl.style.display = '';
+        if (customEl) customEl.style.display = 'none';
         const next = textModels.includes(currentTextModel) ? currentTextModel : textModels[0];
         textEl.value = next;
         currentTextModel = next;
+      } else {
+        // 无预设模型，显示自定义输入框
+        textEl.style.display = 'none';
+        if (customEl) {
+          customEl.style.display = '';
+          customEl.value = currentTextModel || '';
+          customEl.placeholder = '输入接入点ID，如 ep-xxxxxxxx';
+        }
       }
     }
     
@@ -1306,15 +2182,10 @@ async function autoCreateProject() {
     body: JSON.stringify({platform, image_model: imageModel})
   });
 
-  // Create default project
-  const res = await fetch('/api/project/new', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({project_name: '建筑设计项目'})
-  });
-  if (res.ok) {
-    await refreshState();
-  }
+  qaList = [];  // 清空问答记录
+
+  // 启动引导式求职匹配流程
+  await startGuidedFlow();
 }
 
 function getPlatformIcon(platform) {
@@ -1391,16 +2262,24 @@ function onTextPlatformChange() {
   currentTextPlatform = platform;
   const models = platformsData[platform].models;
   const textEl = document.getElementById('textModelSelect');
+  const customEl = document.getElementById('textModelCustom');
   const textModels = models.text || [];
-  textEl.innerHTML = textModels.map(m => `<option value="${m}">${getModelIcon(m)} ${m}</option>`).join('');
-  if (!textModels.length) {
-    currentTextModel = '';
-    saveConfig();
-    return;
+  if (textModels.length) {
+    textEl.style.display = '';
+    if (customEl) customEl.style.display = 'none';
+    textEl.innerHTML = textModels.map(m => `<option value="${m}">${getModelIcon(m)} ${m}</option>`).join('');
+    const next = textModels.includes(currentTextModel) ? currentTextModel : textModels[0];
+    textEl.value = next;
+    currentTextModel = next;
+  } else {
+    // 无预设模型（如火山引擎），显示自定义输入框
+    textEl.style.display = 'none';
+    if (customEl) {
+      customEl.style.display = '';
+      customEl.value = currentTextModel || '';
+      customEl.placeholder = '输入接入点ID，如 ep-xxxxxxxx';
+    }
   }
-  const next = textModels.includes(currentTextModel) ? currentTextModel : textModels[0];
-  textEl.value = next;
-  currentTextModel = next;
   saveConfig();
 }
 
@@ -1433,7 +2312,7 @@ async function applyImgPlatform() {
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    toast('图像平台切换失败: ' + (err.detail || res.status));
+    toast('画图平台切换失败: ' + (err.detail || res.status));
     return;
   }
 
@@ -1442,13 +2321,24 @@ async function applyImgPlatform() {
   saveConfig();
   updatePlatformLabel();
   hideImgPlatformModal();
-  toast('图像平台已切换');
+  toast('画图平台已切换');
 }
 
 async function applyTxtPlatform() {
   const textPlatform = document.getElementById('textPlatformSelect').value;
   const textSelect = document.getElementById('textModelSelect');
-  const textModel = textSelect.value || textSelect.options?.[0]?.value || '';
+  const customInput = document.getElementById('textModelCustom');
+  // 优先读取自定义输入框（火山引擎等），否则从下拉框读
+  let textModel = '';
+  if (customInput && customInput.style.display !== 'none') {
+    textModel = customInput.value.trim();
+    if (!textModel) {
+      toast('请输入接入点ID（如 ep-xxxxxxxx）');
+      return;
+    }
+  } else {
+    textModel = textSelect.value || textSelect.options?.[0]?.value || '';
+  }
 
   const res = await fetch('/api/set_platform', {
     method: 'POST',
@@ -1475,22 +2365,15 @@ async function applyTxtPlatform() {
 
 
 async function newProjectFromUI(closeAfter = false) {
-  showInputModal('新建项目', '建筑设计项目', async (path, name) => {
-    const res = await fetch('/api/project/new', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({project_name: name})
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      toast('新建项目失败: ' + (err.detail || res.status));
-      return;
-    }
-    await refreshState();
-    await loadProjectList();
-    if (closeAfter) hideProjectModal();
-    toast('项目已新建');
-  }, null);
+  // 直接启动新的引导式匹配
+  guidedAnswers = [];
+  guidedStep = 0;
+  guidedIsResult = false;
+  guidedAIStep = 0;
+  guidedTree = null;
+  _multiSelected.clear();
+  await startGuidedFlow();
+  if (closeAfter) hideProjectModal();
 }
 
 function showProjectModal() {
@@ -1874,7 +2757,8 @@ async function startVoiceInput() {
       btn.textContent = '⏹ 停止';
       btn.style.background = 'var(--red)';
       btn.style.color = '#fff';
-      toast('开始语音输入...');
+      input.focus();
+      toast('🎤 正在听...（再点停止）');
     } catch (err) {
       toast('无法启动语音识别: ' + err.message);
     }
@@ -2073,6 +2957,7 @@ async function switchToNode(nodeId) {
     toast('切换节点失败: ' + (err.detail || res.status));
     return;
   }
+  qaList = [];  // 清空本地，由 refreshState 从 path_qa 重建
   await refreshState();
 }
 
@@ -2096,29 +2981,48 @@ async function refreshState() {
   currentPathNodeIdSet = new Set(s.current_path_node_ids || []);
   renderTree(s.tree, document.getElementById('treeContainer'));
   renderPathTags(s.path_tags);
+
+  // 引导模式：显示引导树，隐藏旧树；非引导模式：相反
+  const guidedTreeContainer = document.getElementById('guidedTreeContainer');
+  const legacyTreeSection = document.getElementById('legacyTreeSection');
+  if (guidedMode) {
+    if (guidedTreeContainer) guidedTreeContainer.style.display = '';
+    if (legacyTreeSection) legacyTreeSection.style.display = 'none';
+    renderGuidedTree();
+  } else {
+    if (guidedTreeContainer) guidedTreeContainer.style.display = 'none';
+    if (legacyTreeSection) legacyTreeSection.style.display = '';
+  }
   currentNodeImageUrlSet = new Set(
     (s.current_images || [])
       .map((img) => (img && img.url) ? img.url : null)
       .filter(Boolean)
   );
   selectedImageUrls = new Set(s.current_selecteds || []);
-  renderTreeAttachedImages(s.current_attachments || [], s.current_selecteds || []);
+  // Tree attachments not needed for tutor mode
   renderHistory(s.history, s.save_path);
   renderPicked(s.history);
   renderStyle(s.style_summary, s.ref_images);
   renderStylePicker(s.style_candidates || []);
-  renderImages(s.current_images || [], s.current_selecteds || []);
+  // 统一渲染当前节点内容（图片+文字，与模式无关）
+  renderCurrentNodeContent(s);
 
   nodePromptMap = {};
+  nodeAnswerMap = {};
+  nodeUserInputMap = {};
   (s.history || []).forEach((h) => {
-    if (h && h.id) nodePromptMap[h.id] = h.prompt || '';
+    if (h && h.id) {
+      nodePromptMap[h.id] = h.prompt || '';
+      nodeAnswerMap[h.id] = h.answer || '';
+      nodeUserInputMap[h.id] = h.user_input || '';
+    }
   });
 
-  // 如果当前在看弹窗且切换后该节点无prompt，则自动关闭
+  // 如果当前在看弹窗且切换后该节点无内容，则自动关闭
   const modalEl = document.getElementById('promptModal');
   if (modalEl && modalEl.style.display === 'flex') {
-    const curPrompt = (nodePromptMap[s.current_node] || '').trim();
-    if (!curPrompt) hidePromptBar();
+    const curContent = (nodeUserInputMap[s.current_node] || nodePromptMap[s.current_node] || '').trim();
+    if (!curContent) hidePromptBar();
   }
   syncComposerTextareaHeight();
   
@@ -2128,22 +3032,28 @@ async function refreshState() {
   }
 
   // 恢复生成按钮状态（如果当前节点正在生成）
+  // 前端防御：如果当前节点已有内容，不应视为生成中
+  const curImages = s.current_images || [];
+  const curAnswer = (s.current_answer || '').trim();
+  const reallyGenerating = s.generating && curImages.length === 0 && !curAnswer;
   const btn = document.getElementById('sendBtn');
-  if (s.generating && !isGenerating) {
+  if (reallyGenerating && !isGenerating) {
     isGenerating = true;
     btn.disabled = true;
-    btn.innerHTML = '<i class="ti ti-loader" style="animation:spin 1s linear infinite"></i> 生成中…';
+    btn.innerHTML = imageMode
+      ? '<i class="ti ti-loader" style="animation:spin 1s linear infinite"></i> 生成中…'
+      : '<i class="ti ti-loader" style="animation:spin 1s linear infinite"></i> 思考中…';
     // 重启轮询
     if (!pollingInterval) {
       pollingInterval = setInterval(async () => {
         await refreshState();
       }, 2000);
     }
-  } else if (!s.generating && isGenerating) {
+  } else if (!reallyGenerating && isGenerating) {
     // 生成完成，恢复按钮
     isGenerating = false;
     btn.disabled = false;
-    btn.innerHTML = '<i class="ti ti-sparkles"></i> 生成';
+    btn.innerHTML = imageMode ? '🖼 生成' : '💬 提问';
     if (pollingInterval) {
       clearInterval(pollingInterval);
       pollingInterval = null;
@@ -2161,15 +3071,36 @@ function handleProjBtn() {
 }
 
 // ── Prompt modal ──────────────────────────────
-function showPromptBar(promptText = '', title = '完整 Prompt') {
+function showPromptBar(promptText = '', title = '完整 Prompt', isMarkdown = false) {
   const text = (promptText || '').trim();
   if (!text) {
     toast('该节点暂无 Prompt');
     return;
   }
   document.getElementById('promptModalTitle').textContent = title;
-  document.getElementById('promptModalText').textContent = text;
+  const body = document.getElementById('promptModalText');
+  if (isMarkdown) {
+    body.innerHTML = renderMarkdown(text);
+  } else {
+    body.textContent = text;
+  }
   document.getElementById('promptModal').style.display = 'flex';
+}
+
+function showContentForNode(nodeId) {
+  const prompt = (nodePromptMap[nodeId] || '').trim();
+  const answer = (nodeAnswerMap[nodeId] || '').trim();
+  const userInput = (nodeUserInputMap[nodeId] || '').trim();
+  // 优先显示用户的完整提问，其次显示优化后的提示词，最后显示模型回答
+  if (userInput) {
+    showPromptBar(userInput, `节点 ${nodeId} · 用户提问`);
+  } else if (prompt) {
+    showPromptBar(prompt, `节点 ${nodeId} · 提示词`);
+  } else if (answer) {
+    showPromptBar(answer, `节点 ${nodeId} · 回答`, true);
+  } else {
+    toast(`节点 ${nodeId} 暂无内容`);
+  }
 }
 
 function showPromptForNode(nodeId) {
@@ -2190,85 +3121,310 @@ let generatingNode = null;
 let pollingInterval = null;
 let isGenerating = false;
 
+function escapeHtml(text) {
+  return String(text || "").replace(/[&<>"']/g, (match) => {
+    return {
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#39;',
+    }[match];
+  });
+}
+
+// ── Markdown rendering ─────────────────────────
+marked.setOptions({
+  highlight: function(code, lang) {
+    if (lang && hljs.getLanguage(lang)) {
+      return hljs.highlight(code, { language: lang }).value;
+    }
+    return hljs.highlightAuto(code).value;
+  },
+  breaks: true,
+  gfm: true,
+});
+
+function renderMarkdown(text) {
+  if (!text) return '';
+  return marked.parse(text);
+}
+
+// ── Mode toggle ──────────────────────────────
+function toggleMode() {
+  imageMode = !imageMode;
+  const modeBtn = document.getElementById('modeBtn');
+  const nBtns = document.getElementById('nBtns');
+  const sendBtn = document.getElementById('sendBtn');
+  if (imageMode) {
+    modeBtn.textContent = '💬 文字模式';
+    modeBtn.title = '切换到文字问答';
+    nBtns.style.display = 'flex';
+    sendBtn.innerHTML = '🖼 生成';
+  } else {
+    modeBtn.textContent = '🖼 图片模式';
+    modeBtn.title = '切换到图片生成';
+    nBtns.style.display = 'none';
+    sendBtn.innerHTML = '💬 提问';
+  }
+}
+
+// ── Unified node content display ──────────────
+// 点击节点统一展示该节点的所有内容（图片+文字），与生成模式无关
+function renderCurrentNodeContent(s) {
+  // 引导模式下不覆盖聊天区
+  if (guidedMode && (guidedAnswers.length > 0 || guidedIsResult)) return;
+
+  const grid = document.getElementById('imgGrid');
+  const images = s.current_images || [];
+  const selectedUrls = s.current_selecteds || [];
+  const answer = s.current_answer || '';
+  const answerSelected = s.current_answer_selected || false;
+
+  // 从后端恢复 path_qa（用于记忆上下文）
+  if (s.path_qa && s.path_qa.length) {
+    qaList = s.path_qa;
+  }
+
+  const hasImages = images.length > 0;
+  const hasAnswer = answer.trim().length > 0;
+
+  if (!hasImages && !hasAnswer) {
+    showEmptyGrid();
+    return;
+  }
+
+  // 如果只有图片（无文字回答），使用 img-grid 布局
+  if (hasImages && !hasAnswer) {
+    renderImages(images, selectedUrls);
+    return;
+  }
+
+  grid.className = 'text-display';
+  let html = '';
+
+  // 显示文字回答
+  if (hasAnswer) {
+    const selCls = answerSelected ? 'answer-selected' : '';
+    html += `<div class="a-block ${selCls}">
+      <div class="a-label">回答
+        <button class="answer-select-btn ${answerSelected ? 'active' : ''}" onclick="toggleAnswerSelect()" title="${answerSelected ? '取消选中' : '选中此回答'}">
+          ${answerSelected ? '✓ 已选' : '选中'}
+        </button>
+      </div>
+      <div class="a-text">${renderMarkdown(answer)}</div>
+    </div>`;
+  }
+
+  // 显示图片
+  if (hasImages) {
+    const selectedSet = new Set(selectedUrls || []);
+    html += `<div class="node-images-section">`;
+    html += images.map((img, i) => {
+      if (img.error || !img.url) return `
+        <div class="img-card">
+          <div class="img-placeholder">
+            <i class="ti ti-photo-off"></i>
+            <span class="gen-error">${img.error || '生成失败'}</span>
+          </div>
+        </div>`;
+      const isSel = selectedSet.has(img.url);
+      return `
+        <div class="img-card ${isSel ? 'sel' : ''}" onclick="selectImage(this,'${img.url}')">
+          <img src="${img.url}" alt="图${i+1}" loading="lazy">
+          <button class="img-zoom-btn" onclick="event.stopPropagation();showImageViewer('${img.url}', ${isSel ? 'true' : 'false'}, true)" title="大图查看">
+            🔍
+          </button>
+        </div>`;
+    }).join('');
+    html += `</div>`;
+  }
+
+  grid.innerHTML = html;
+  grid.scrollTop = grid.scrollHeight;
+}
+
+// ── Text display ─────────────────────────────
+function renderQaDisplay(streaming) {
+  const grid = document.getElementById('imgGrid');
+  grid.className = 'text-display';
+  if (!qaList.length && !streaming) {
+    showEmptyGrid();
+    return;
+  }
+  let html = '';
+  for (let i = 0; i < qaList.length; i++) {
+    const qa = qaList[i];
+    html += `<div class="q-block"><div class="q-label">问题</div><div class="q-text">${escapeHtml(qa.question)}</div></div>`;
+    html += `<div class="a-block"><div class="a-label">回答</div><div class="a-text">${renderMarkdown(qa.answer)}`;
+    if (streaming && i === qaList.length - 1 && qa.answer === qa._raw) {
+      // still streaming — add cursor
+    }
+    html += `</div></div>`;
+  }
+  grid.innerHTML = html;
+  grid.scrollTop = grid.scrollHeight;
+}
+
+function showStreamingAnswer(question, partialText) {
+  const grid = document.getElementById('imgGrid');
+  grid.className = 'text-display';
+  let html = '';
+  // 之前的完整QA
+  for (let i = 0; i < qaList.length - 1; i++) {
+    const qa = qaList[i];
+    html += `<div class="q-block"><div class="q-label">问题</div><div class="q-text">${escapeHtml(qa.question)}</div></div>`;
+    html += `<div class="a-block"><div class="a-label">回答</div><div class="a-text">${renderMarkdown(qa.answer)}</div></div>`;
+  }
+  // 当前正在stream的
+  if (qaList.length > 0) {
+    const cur = qaList[qaList.length - 1];
+    html += `<div class="q-block"><div class="q-label">问题</div><div class="q-text">${escapeHtml(cur.question)}</div></div>`;
+    html += `<div class="a-block"><div class="a-label">回答</div><div class="a-text">${renderMarkdown(partialText)}<span class="cursor-blink"></span></div></div>`;
+  }
+  grid.innerHTML = html;
+  grid.scrollTop = grid.scrollHeight;
+}
+
+// ── Main generate ─────────────────────────────
 async function generate() {
-  // 防止重复点击
   if (isGenerating) return;
 
   const input = document.getElementById('userInput').value.trim();
-  if (!input && !promptImages.length) { toast('请输入设计需求或上传图片'); return; }
+  if (!input) { toast(imageMode ? '请输入描述' : '请输入求职问题'); return; }
 
-  // 获取模型记忆
-  const modelMemory = document.getElementById('modelMemory')?.value.trim() || '';
+  if (guidedMode && !guidedIsResult) {
+    // 引导模式下，输入框内容作为引导回答
+    await selectGuidedOption(input);
+    document.getElementById('userInput').value = '';
+    return;
+  }
 
+  if (imageMode) {
+    await generateImages(input);
+  } else {
+    await generateText(input);
+  }
+}
+
+async function generateText(input) {
+  const btn = document.getElementById('sendBtn');
+  isGenerating = true;
+  btn.disabled = true;
+  btn.innerHTML = '<i class="ti ti-loader" style="animation:spin 1s linear infinite"></i> 思考中…';
+
+  // 先在本地显示问题（回答待流式填充）
+  qaList.push({ question: input, answer: '' });
+  document.getElementById('userInput').value = '';
+  showStreamingAnswer(input, '');
+
+  try {
+    // 构造history（之前的QA对）
+    const historyItems = [];
+    // 只保留最近4轮QA，避免history过长导致API变慢
+    const startIdx = Math.max(0, qaList.length - 1 - 4);
+    for (let i = startIdx; i < qaList.length - 1; i++) {
+      // 限制每条历史内容长度，防止超长回答拖慢后续请求
+      const q = qaList[i].question.slice(0, 500);
+      const a = qaList[i].answer.slice(0, 1500);
+      historyItems.push({ role: 'user', content: q });
+      historyItems.push({ role: 'assistant', content: a });
+    }
+
+    const res = await fetch('/api/generate', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        user_input: input,
+        history: historyItems,
+      })
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      toast('回答失败: ' + (err.detail || res.status));
+      qaList.pop();
+      renderQaDisplay(false);
+      return;
+    }
+
+    // 请求成功 → 后端已创建节点，立即刷新树（不等流式完成）
+    refreshState();
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder('utf-8');
+    let assistantText = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      assistantText += decoder.decode(value, { stream: true });
+      showStreamingAnswer(input, assistantText);
+    }
+
+    // 完成 — 保存最终答案
+    qaList[qaList.length - 1].answer = assistantText;
+    renderQaDisplay(false);
+    // 刷新树和状态（后端已创建节点）
+    await refreshState();
+  } catch (e) {
+    toast('回答失败: ' + e.message);
+    qaList.pop();
+    renderQaDisplay(false);
+  } finally {
+    isGenerating = false;
+    btn.disabled = false;
+    btn.innerHTML = '💬 提问';
+  }
+}
+
+async function generateImages(input) {
   const btn = document.getElementById('sendBtn');
   isGenerating = true;
   btn.disabled = true;
   btn.innerHTML = '<i class="ti ti-loader" style="animation:spin 1s linear infinite"></i> 生成中…';
 
-  // Show loading placeholders
+  document.getElementById('userInput').value = '';
   showLoadingCards(currentN);
-  hidePromptBar();
-
-  // 开始轮询状态（每2秒刷新一次）
-  pollingInterval = setInterval(async () => {
-    await refreshState();
-  }, 2000);
 
   try {
-    // 准备请求数据
-    const bodyData = {
-      user_input: input,
-      n: currentN,
-      optimize_prompt: false,
-      model_memory: modelMemory,
-      prompt_images: promptImages.map(img => ({ url: img.data, name: img.name }))  // 发送附带图片
-    };
-
-    const res = await fetch('/api/generate', {
+    const res = await fetch('/api/generate_image', {
       method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify(bodyData)
+      body: JSON.stringify({ user_input: input, n: currentN })
     });
-
-    // 停止轮询
-    if (pollingInterval) {
-      clearInterval(pollingInterval);
-      pollingInterval = null;
-    }
-
-    isGenerating = false;
-    btn.disabled = false;
-    btn.innerHTML = '<i class="ti ti-sparkles"></i> 生成';
 
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      toast('生成失败: ' + (err.detail || res.status));
-      await refreshState();
+      toast('画图失败: ' + (err.detail || res.status));
+      showEmptyGrid();
       return;
     }
 
-    await res.json();
-    document.getElementById('userInput').value = '';
-    document.getElementById('polishStatus').style.display = 'none';
-    syncComposerTextareaHeight();
-    selectedImageUrls = new Set();
-    originalInput = '';
-    polishedInput = '';
-    localStorage.removeItem(INPUT_KEY);
-    // 清除已上传的图片
-    clearPromptImages();
+    // 请求成功 → 后端已创建节点，立即刷新树
+    refreshState();
 
-    await refreshState();
-  } catch (e) {
-    // 停止轮询
-    if (pollingInterval) {
-      clearInterval(pollingInterval);
-      pollingInterval = null;
+    const data = await res.json();
+    if (data.images && data.images.length) {
+      renderImages(data.images, []);
+      // 立即恢复按钮状态（图片已可见）
+      isGenerating = false;
+      btn.disabled = false;
+      btn.innerHTML = '🖼 生成';
+      // 刷新树和状态（后端已创建节点）
+      await refreshState();
+    } else {
+      toast('画图失败，请重试');
+      showEmptyGrid();
     }
-    isGenerating = false;
-    btn.disabled = false;
-    btn.innerHTML = '<i class="ti ti-sparkles"></i> 生成';
-    toast('生成失败: ' + e.message);
-    await refreshState();
+  } catch (e) {
+    toast('画图失败: ' + e.message);
+    showEmptyGrid();
+  } finally {
+    // 确保最终状态正确（双重保障）
+    if (isGenerating) {
+      isGenerating = false;
+      btn.disabled = false;
+      btn.innerHTML = '🖼 生成';
+    }
   }
 }
 
@@ -2286,10 +3442,20 @@ function showLoadingCards(n) {
 }
 
 function showEmptyGrid() {
-  document.getElementById('imgGrid').innerHTML = `
-    <div style="grid-column:1/-1;text-align:center;padding:60px 0;color:var(--dim);font-size:13px">
-      输入你的设计需求，点击「生成」开始
+  const grid = document.getElementById('imgGrid');
+  grid.className = 'text-display';
+  if (guidedMode) {
+    grid.innerHTML = `
+    <div style="text-align:center;padding:60px 0;color:var(--dim);font-size:13px">
+      点击「新建项目」开始引导式求职匹配
     </div>`;
+  } else {
+    const tip = imageMode ? '输入描述，点击「生成」创建示意图' : '输入你的求职问题，点击「提问」开始讨论';
+    grid.innerHTML = `
+    <div style="text-align:center;padding:60px 0;color:var(--dim);font-size:13px">
+      ${tip}
+    </div>`;
+  }
 }
 
 function renderImages(images, selectedUrls = []) {
@@ -2327,8 +3493,21 @@ async function selectImage(el, url) {
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    toast('切换选图失败: ' + (err.detail || res.status));
+    toast('切换选中失败: ' + (err.detail || res.status));
     await refreshState();
+    return;
+  }
+  await refreshState();
+}
+
+async function toggleAnswerSelect() {
+  const res = await fetch('/api/toggle_answer_selected', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({})
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    toast('操作失败: ' + (err.detail || res.status));
     return;
   }
   await refreshState();
@@ -2340,7 +3519,7 @@ async function uploadRef(input) {
   const fd = new FormData(); fd.append('file', input.files[0]);
   const res = await fetch('/api/upload_reference', {method:'POST', body: fd});
   if (!res.ok) { toast('上传失败'); return; }
-  toast('参考图已添加');
+  toast('参考资源已添加');
   await refreshState();
   input.value = '';
 }
@@ -2436,21 +3615,27 @@ function renderTree(node, container, depth=0) {
   };
 
   let dotClass = node.is_current ? 'current' : (node.selected ? 'done' : (depth > 1 ? 'branch' : ''));
-  if (node.generating) dotClass = 'generating';
-  const selectedMeta = node.selected_count ? ` · 已选${node.selected_count}张` : '';
-  const generatingText = node.generating ? ' 生成中...' : '';
+  // 前端防御：如果节点已有内容，不应显示为生成中
+  const actuallyGenerating = node.generating && node.images === 0 && !node.has_answer;
+  if (actuallyGenerating) dotClass = 'generating';
+  // 计算回答数量：图片回答 + 文字回答
+  const totalAnswers = node.images + (node.has_answer ? 1 : 0);
+  const totalSelected = node.selected_count + (node.answer_selected ? 1 : 0);
+  const selectedMeta = totalSelected ? ` · 已选${totalSelected}个回答` : '';
+  const generatingText = actuallyGenerating ? ' 生成中...' : '';
   tn.innerHTML = `
     <div class="tree-dot ${dotClass}"></div>
     <div>
       <div class="tree-label">${node.label}${generatingText}</div>
-      <div class="tree-meta">${node.id} · ${node.images}张图${selectedMeta}</div>
+      <div class="tree-meta">${node.id} · ${totalAnswers}个回答${selectedMeta}</div>
     </div>`;
   const dotEl = tn.querySelector('.tree-dot');
   if (dotEl) {
-    dotEl.title = '点击查看该节点完整 Prompt';
+    const hasContent = node.images > 0 || node.has_answer;
+    dotEl.title = hasContent ? '点击查看该节点内容' : '';
     dotEl.addEventListener('click', (e) => {
       e.stopPropagation();
-      showPromptForNode(node.id);
+      showContentForNode(node.id);
     });
   }
   wrap.appendChild(tn);
@@ -2477,7 +3662,7 @@ function renderTreeAttachedImages(images, selectedUrls = []) {
 
   const list = (images || []).filter(img => img && img.url);
   if (!list.length) {
-    box.innerHTML = '<div class="picked-empty">当前节点暂无附带图片</div>';
+    box.innerHTML = '<div class="picked-empty">当前节点暂无内容</div>';
     return;
   }
 
@@ -2491,80 +3676,66 @@ function renderTreeAttachedImages(images, selectedUrls = []) {
 }
 
 function renderHistory(history, savePath) {
-  document.getElementById('histContainer').innerHTML = history.map(h => `
+  document.getElementById('histContainer').innerHTML = history.map(h => {
+    // 图片缩略图
+    const imgs = h.image_list || [];
+    const imgHtml = imgs.length ? `<div class="hist-images">${imgs.map(img => `
+      <div class="hist-thumb" onclick="event.stopPropagation();showImageViewer('${img.url}', false, false)" style="cursor:pointer">
+        <img src="${img.url}" alt="img" loading="lazy">
+      </div>`).join('')}</div>` : '';
+    return `
     <div class="hist-item ${currentPathNodeIdSet.has(h.id) ? 'on-path' : ''} ${h.is_current ? 'current' : ''}" data-node-id="${h.id}" onclick="switchToNode('${h.id}')" style="cursor:pointer">
       <div class="hist-head">
         <span class="hist-v">${h.id}</span>
         <span class="hist-text">${h.user_input}</span>
       </div>
-      ${h.selected ? `<div class="hist-sel"><i class="ti ti-check" style="font-size:10px"></i> 已选中图片${h.selected_count ? `（${h.selected_count}）` : ''}</div>` : ''}
-      ${(h.attachments && h.attachments.length) ? `
-        <div class="hist-attachments-label">附带图片：</div>
-        <div class="hist-attached-grid">
-          ${h.attachments.map((img) => {
-            return `
-              <div class="hist-attached-item" onclick="event.stopPropagation();showImageViewer('${img.url}', false, false)" style="cursor:pointer">
-                <img src="${img.url}" alt="attachment-${h.id}" loading="lazy">
-              </div>
-            `;
-          }).join('')}
-        </div>
-      ` : ''}
-      ${(h.selected_images && h.selected_images.length) ? `
-        <div class="hist-selected-label">已选图片：</div>
-        <div class="hist-attached-grid">
-          ${h.selected_images.map((img) => {
-            const selectable = currentNodeImageUrlSet.has(img.url);
-            const isSel = selectedImageUrls.has(img.url);
-            return `
-              <div class="hist-attached-item" onclick="event.stopPropagation();showImageViewer('${img.url}', ${isSel ? 'true' : 'false'}, ${selectable ? 'true' : 'false'})" style="cursor:pointer">
-                <img src="${img.url}" alt="hist-${h.id}" loading="lazy">
-              </div>
-            `;
-          }).join('')}
-        </div>
-      ` : ''}
-      ${h.prompt ? `<div class="hist-prompt-toggle" onclick="event.stopPropagation();this.nextElementSibling.classList.toggle('show')">查看优化后 prompt ▾</div>
-        <div class="hist-prompt">${h.prompt}</div>` : ''}
-    </div>`).join('');
+      ${imgHtml}
+      ${h.selected || h.answer_selected ? `<div class="hist-sel"><i class="ti ti-check" style="font-size:10px"></i> 已选中回答${h.answer_selected ? '📝' : ''}${h.selected ? `🖼${h.selected_count ? `(${h.selected_count})` : ''}` : ''}</div>` : ''}
+      ${h.answer ? `<div class="hist-prompt-toggle" onclick="event.stopPropagation();this.nextElementSibling.classList.toggle('show')">查看回答 ▾</div>
+        <div class="hist-prompt hist-answer">${renderMarkdown(h.answer)}</div>` : h.prompt ? `<div class="hist-prompt-toggle" onclick="event.stopPropagation();this.nextElementSibling.classList.toggle('show')">查看完整提示词 ▾</div>
+        <div class="hist-prompt">${escapeHtml(h.prompt)}</div>` : ''}
+    </div>`;
+  }).join('');
   document.getElementById('savePath').textContent = savePath || '';
 }
 
 function renderPicked(history) {
   const box = document.getElementById('pickedContainer');
   if (!box) return;
+  if (!box) return;
 
   const picked = [];
   (history || []).forEach((h) => {
-    const imgs = (h.selected_images || []).filter(img => img && img.url);
-    imgs.forEach((img, idx) => {
+    if (h.selected || h.answer_selected) {
       picked.push({
         node_id: h.id,
         user_input: h.user_input || '',
+        prompt: h.prompt || '',
+        answer: h.answer || '',
+        answer_selected: !!h.answer_selected,
+        image_selected: !!h.selected,
         is_current: !!h.is_current,
-        url: img.url,
-        key: `${h.id}-${idx}-${img.url}`,
       });
-    });
+    }
   });
 
   if (!picked.length) {
-    box.innerHTML = '<div class="picked-empty">暂无已选图片</div>';
+    box.innerHTML = '<div class="picked-empty">暂无已选回答</div>';
     return;
   }
 
-  box.innerHTML = `<div class="picked-list">${picked.map(h => `
-    <div class="picked-item ${h.is_current ? 'current' : ''}" data-node-id="${h.node_id}" data-picked-key="${h.key}">
-      <div style="position:relative">
-        <img class="picked-thumb" src="${h.url}" alt="selected ${h.node_id}" loading="lazy">
-        <button class="picked-zoom-btn" onclick="event.stopPropagation();showImageViewer('${h.url}', ${selectedImageUrls.has(h.url) ? 'true' : 'false'}, ${currentNodeImageUrlSet.has(h.url) ? 'true' : 'false'})" title="大图查看">🔍</button>
-      </div>
+  box.innerHTML = `<div class="picked-list">${picked.map(h => {
+    const typeTag = h.answer_selected ? '📝' : '🖼';
+    const preview = h.answer_selected ? (h.answer || '').substring(0, 120) : (h.prompt || '').substring(0, 120);
+    return `
+    <div class="picked-item ${h.is_current ? 'current' : ''}" data-node-id="${h.node_id}" style="cursor:pointer">
       <div class="picked-meta">
-        <div class="picked-node">${h.node_id}</div>
+        <div class="picked-node">${typeTag} ${h.node_id}</div>
         <div class="picked-text">${h.user_input}</div>
+        ${preview ? `<div style="font-size:11px;color:var(--muted);margin-top:4px;line-height:1.4;max-height:60px;overflow:hidden">${escapeHtml(preview)}…</div>` : ''}
       </div>
-    </div>
-  `).join('')}</div>`;
+    </div>`;
+  }).join('')}</div>`;
 
   box.querySelectorAll('.picked-item').forEach((el) => {
     el.addEventListener('click', () => {
@@ -2577,7 +3748,7 @@ function renderPicked(history) {
 function renderStyle(styles, refImages) {
   const sc = document.getElementById('styleContainer');
   if (!styles.length) {
-    sc.innerHTML = '<div style="font-size:12px;color:var(--dim);padding:8px 0">选图后自动学习风格偏好</div>';
+    sc.innerHTML = '<div style="font-size:12px;color:var(--dim);padding:8px 0">对话后自动学习求职偏好</div>';
   } else {
     const max = Math.max(...styles.map(s => Math.abs(s.weight)), 0.1);
     sc.innerHTML = styles.map(s => {
@@ -2586,18 +3757,9 @@ function renderStyle(styles, refImages) {
       return `<div class="style-row">
         <span class="skey">${s.keyword}</span>
         <div class="sbar-bg"><div class="sbar-fill ${pos ? 'sbar-pos' : 'sbar-neg'}" style="width:${pct}%"></div></div>
-        <span class="sval">${pos ? '要' : '不要'} ${s.weight > 0 ? '+' : ''}${s.weight.toFixed(1)}</span>
+        <span class="sval">${pos ? '关注' : '不关注'} ${s.weight > 0 ? '+' : ''}${s.weight.toFixed(1)}</span>
       </div>`;
     }).join('');
-  }
-
-  const rg = document.getElementById('refGrid');
-  if (!refImages.length) {
-    rg.innerHTML = '<div class="ref-empty" style="grid-column:1/-1">暂无参考图</div>';
-  } else {
-    rg.innerHTML = refImages.map(r =>
-      `<div class="ref-item"><img src="${r.path}" alt="${r.label}" title="${r.label}"></div>`
-    ).join('');
   }
 }
 
@@ -2611,7 +3773,7 @@ function renderStylePicker(candidates) {
     .filter(Boolean);
 
   if (!styleCandidatePool.length) {
-    box.innerHTML = '<div class="picked-empty">暂无可选风格</div>';
+    box.innerHTML = '<div class="picked-empty">暂无可选主题</div>';
     return;
   }
 
@@ -2690,12 +3852,110 @@ async function loadSession(path, silent = false) {
   const fd = new FormData();
   fd.append('path', path);
   const res = await fetch('/api/project/load', {method:'POST', body: fd});
-  if (!res.ok) { 
-    if (!silent) toast('加载失败'); 
+  if (!res.ok) {
+    if (!silent) toast('加载失败');
     throw new Error('加载失败');
   }
+  qaList = [];  // 清空问答记录
+  guidedMode = false;  // 加载已有项目时切换到自由对话模式
+  guidedAnswers = [];
+  guidedIsResult = false;
+  guidedTree = null;
+  const guidedTreeContainer = document.getElementById('guidedTreeContainer');
+  const legacyTreeSection = document.getElementById('legacyTreeSection');
+  if (guidedTreeContainer) guidedTreeContainer.style.display = 'none';
+  if (legacyTreeSection) legacyTreeSection.style.display = '';
   await refreshState();
   if (!silent) toast('项目已加载');
+}
+
+// ── Resume evaluation ──────────────────────────
+async function evaluateResume() {
+  const resumeText = document.getElementById('resumeText').value.trim();
+  if (!resumeText) {
+    toast('请先粘贴简历内容');
+    return;
+  }
+  const targetPosition = document.getElementById('resumeTarget').value.trim();
+  const resultDiv = document.getElementById('resumeResult');
+  const contentDiv = document.getElementById('resumeResultContent');
+  
+  resultDiv.style.display = '';
+  contentDiv.innerHTML = '<div style="color:var(--dim)"><i class="ti ti-loader" style="animation:spin 1s linear infinite"></i> 正在评估简历匹配度…</div>';
+
+  try {
+    const res = await fetch('/api/evaluate_resume', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ resume_text: resumeText, target_position: targetPosition })
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      contentDiv.innerHTML = `<div style="color:var(--red)">评估失败: ${err.detail || res.status}</div>`;
+      return;
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder('utf-8');
+    let fullText = '';
+    contentDiv.innerHTML = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      fullText += decoder.decode(value, { stream: true });
+      contentDiv.innerHTML = renderMarkdown(fullText) + '<span class="cursor-blink"></span>';
+    }
+
+    contentDiv.innerHTML = renderMarkdown(fullText);
+  } catch (e) {
+    contentDiv.innerHTML = `<div style="color:var(--red)">评估失败: ${e.message}</div>`;
+  }
+}
+
+async function enhanceResume() {
+  const resumeText = document.getElementById('resumeText').value.trim();
+  if (!resumeText) {
+    toast('请先粘贴简历内容');
+    return;
+  }
+  const targetPosition = document.getElementById('resumeTarget').value.trim();
+  const resultDiv = document.getElementById('resumeResult');
+  const contentDiv = document.getElementById('resumeResultContent');
+  
+  resultDiv.style.display = '';
+  contentDiv.innerHTML = '<div style="color:var(--dim)"><i class="ti ti-loader" style="animation:spin 1s linear infinite"></i> 正在优化简历…</div>';
+
+  try {
+    const res = await fetch('/api/enhance_resume', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ resume_text: resumeText, target_position: targetPosition })
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      contentDiv.innerHTML = `<div style="color:var(--red)">优化失败: ${err.detail || res.status}</div>`;
+      return;
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder('utf-8');
+    let fullText = '';
+    contentDiv.innerHTML = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      fullText += decoder.decode(value, { stream: true });
+      contentDiv.innerHTML = renderMarkdown(fullText) + '<span class="cursor-blink"></span>';
+    }
+
+    contentDiv.innerHTML = renderMarkdown(fullText);
+  } catch (e) {
+    contentDiv.innerHTML = `<div style="color:var(--red)">优化失败: ${e.message}</div>`;
+  }
 }
 
 // ── Toast ─────────────────────────────────────
@@ -2759,6 +4019,10 @@ function setTheme(theme) {
 }
 
 async function saveSettings() {
+  const saveBtn = document.getElementById('settingsSaveBtn');
+  saveBtn.disabled = true;
+  saveBtn.textContent = '保存中…';
+  
   // 保存API keys到localStorage
   const keys = {
     openai: normalizeApiKey(document.getElementById('keyOpenAI').value),
@@ -2771,15 +4035,29 @@ async function saveSettings() {
   
   // 发送到后端覆盖
   try {
-    await fetch('/api/set_api_keys', {
+    const res = await fetch('/api/set_api_keys', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(keys)
     });
-  } catch (e) {}
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      toast('保存失败: ' + (err.detail || res.status));
+      saveBtn.disabled = false;
+      saveBtn.textContent = '保存';
+      return;
+    }
+  } catch (e) {
+    toast('保存失败: ' + e.message);
+    saveBtn.disabled = false;
+    saveBtn.textContent = '保存';
+    return;
+  }
   
   hideSettingsModal();
   toast('设置已保存');
+  saveBtn.disabled = false;
+  saveBtn.textContent = '保存';
 }
 
 // 加载主题

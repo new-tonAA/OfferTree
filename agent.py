@@ -2,7 +2,7 @@
 agent.py — AI调用层
 
 职责：
-1. prompt_agent()   : 用户输入 + 历史路径 → 优化后的图像生成prompt
+1. prompt_agent()   : 用户输入 + 历史路径 → 优化后的求职提示词
 2. generate_images(): 调用图像API生成N张图（支持多平台）
 3. transcribe()     : 调用 Whisper API 将音频转文字
 
@@ -43,7 +43,7 @@ PLATFORMS: Dict[str, Dict[str, Any]] = {
         "api_key": "",
         "models": {
             "image": ["gpt-image-1", "gpt-image-1.5", "gpt-image-2", "gpt-image-1-mini"],
-            "text": ["gpt-4o", "gpt-4-turbo", "gpt-4o-mini"],
+            "text": ["gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano"],
             "audio": ["whisper-1"]
         }
     },
@@ -89,8 +89,9 @@ PLATFORMS: Dict[str, Dict[str, Any]] = {
             ],
             "text": [
                 "gpt-4o",
-                "gpt-4-turbo",
                 "gpt-4o-mini",
+                "gpt-4.1",
+                "gpt-4.1-mini",
                 "gemini-3.1-pro-preview",
             ]
         }
@@ -106,7 +107,9 @@ PLATFORMS: Dict[str, Dict[str, Any]] = {
                 "doubao-seedream-5-0-260128",
                 "doubao-seedream-3-0-t2i-250415",
             ],
-            "text": ["doubao-pro-32k", "doubao-lite-32k"]
+            # 火山引擎文本模型需要填写接入点ID(endpoint)，格式如 ep-xxxxxxxxxxxx-xxxxx
+            # 请在火山引擎控制台创建接入点后填入
+            "text": []
         }
     },
     "deepseek": {
@@ -115,7 +118,7 @@ PLATFORMS: Dict[str, Dict[str, Any]] = {
         "api_key": "",
         "models": {
             "image": [],  # DeepSeek 不支持图像生成
-            "text": ["deepseek-chat", "deepseek-coder"]
+            "text": ["deepseek-chat", "deepseek-v4-flash", "deepseek-reasoner", "deepseek-v4-pro"]
         }
     }
 }
@@ -200,7 +203,9 @@ def set_platform(platform: Optional[str] = None, image_model: Optional[str] = No
     
     if text_model:
         text_config = PLATFORMS[_current_text_platform]
-        if text_model not in text_config["models"].get("text", []):
+        supported_text = text_config["models"].get("text", [])
+        # 火山引擎文本模型为空列表时，允许用户填入接入点ID（ep-xxx 格式）
+        if supported_text and text_model not in supported_text:
             raise ValueError(f"平台 {_current_text_platform} 不支持文本模型: {text_model}")
         _current_text_model = text_model
 
@@ -227,7 +232,7 @@ def _get_text_api_key() -> str:
 
 def _sanitize_api_key(raw: str) -> str:
     """
-    清洗 API Key，避免“看起来有效但被判无效令牌”的常见输入问题：
+    清洗 API Key，避免"看起来有效但被判无效令牌"的常见输入问题：
     - 复制了 `Bearer xxx`
     - 包含换行/空格/零宽字符
     - 外层多了一对引号
@@ -256,21 +261,21 @@ def _mask_api_key(key: str) -> str:
 # 1. Prompt Agent
 # ─────────────────────────────────────────────
 
-_SYSTEM_PROMPT = """你是一名建筑效果图提示词助手。
+_SYSTEM_PROMPT = """你是一名AI求职智能匹配助手的提示词润色助手。
 
-你的任务很简单：**把用户的需求描述改得更清楚、更具体**。
+你的任务很简单：**把用户的求职相关描述改得更清楚、更具体**。
 
 规则：
 1. 用户说什么就改什么，不要添加用户没要求的内容
-2. 如果用户说"改成XX"，你就把原来的XX改成新的
-3. 如果用户描述模糊，帮他补充具体细节（如材质、视角）
+2. 如果用户说"找XX工作"，你就把需求补充完整（如行业方向、职位级别、关键技能）
+3. 如果用户描述模糊，帮他补充具体细节（如期望行业、技能方向、职业兴趣）
 4. 保持简洁，不要写太长，50-100字足够
 5. 直接输出润色后的文字，不要解释
-6. 绝对不能改变用户核心意图；仅允许“清晰化表达”，不允许“改写需求方向”
+6. 绝对不能改变用户核心意图；仅允许"清晰化表达"，不允许"改写需求方向"
 
 示例：
-用户输入："把屋顶改成红色"
-润色输出："红色屋顶的现代建筑，保持原有建筑结构和周围环境，照片级建筑效果图"
+用户输入："想找互联网工作"
+润色输出："希望寻找互联网行业的前端/后端开发岗位，偏好中型企业，关注技术成长空间"
 """
 
 
@@ -291,14 +296,16 @@ def prompt_agent(context: dict) -> str:
     model_memory = context.get("model_memory", "")
     memory_text = f"\n模型记忆（永久附加）：{model_memory}" if model_memory else ""
 
+    project_name = context["project_name"]
+    new_input = context["new_user_input"]
     user_msg = (
-        f"项目：{context['project_name']}\n\n"
+        f"项目：{project_name}\n\n"
         f"设计迭代路径（root → 当前）：\n{history_text}\n\n"
-        f"路径上的已选图片记忆：\n{selected_text}\n\n"
+        f"路径上的已选回答记忆：\n{selected_text}\n\n"
         f"路径上的用户上传参考图：\n{path_attachments_text}\n\n"
-        f"本次新需求：{context['new_user_input']}\n\n"
+        f"本次新需求：{new_input}\n\n"
         f"设计师风格偏好：{weights_text}{memory_text}\n\n"
-        f"硬约束：不得改变“本次新需求”的语义方向，只能做清晰化与可视化细节补充。"
+        "硬约束：不得改变本次新需求的语义方向，只能做清晰化与可视化细节补充。"
     )
 
     # OpenRouter需要特殊header
@@ -387,7 +394,7 @@ def compose_prompt_from_context(context: dict) -> str:
     if new_user_input:
         parts.append(new_user_input)
 
-    parts.append("Architectural visualization, photorealistic, 8k.")
+    parts.append("Job matching, career guidance, clear structure.")
     return " ".join(parts).strip()
 
 
@@ -400,7 +407,7 @@ def _format_history(history: list) -> str:
         if h.get("prompt_used"):
             lines.append(f"      → prompt: {h['prompt_used']}")
         if h.get("selected"):
-            lines.append(f"      → 用户选中了一张图继续")
+            lines.append(f"      → 用户选中了一个回答继续")
         selected_image = h.get("selected_image")
         if isinstance(selected_image, dict) and selected_image.get("revised_prompt"):
             lines.append(f"      → 该节点选中图的revised_prompt: {selected_image['revised_prompt']}")
@@ -409,7 +416,7 @@ def _format_history(history: list) -> str:
 
 def _format_selected_images(selected_images: list) -> str:
     if not selected_images:
-        return "  （路径上暂无已选图）"
+        return "  （路径上暂无已选回答）"
 
     lines = []
     for i, img in enumerate(selected_images[-10:]):  # 最多带最近10条，防止上下文过长
@@ -463,7 +470,7 @@ def _dedup_text_items(items: list[str], max_items: Optional[int] = None, similar
     - 完全相同去重
     - 子串高重合去重
     - Jaccard 词集相似度去重
-    只去重“补充记忆片段”，不改写文本内容本身。
+    只去重"补充记忆片段"，不改写文本内容本身。
     """
     kept: list[str] = []
     kept_norm: list[str] = []

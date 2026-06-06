@@ -1,9 +1,9 @@
 """
-state_manager.py — 设计状态树核心管理器
+state_manager.py — 求职匹配状态树核心管理器
 
 数据结构（无数据库，纯JSON）：
 {
-  "project":      项目名,
+  "project":      求职项目名,
   "created":      创建时间,
   "current_node": 当前活跃节点ID,
   "nodes": {
@@ -11,15 +11,15 @@ state_manager.py — 设计状态树核心管理器
       "id":          节点ID,
       "parent":      父节点ID / null,
       "children":    [子节点ID, ...],
-      "user_input":  用户的原始输入文字,
-      "prompt":      经Agent优化后的完整prompt（仅本节点新增部分）,
+      "user_input":  用户的原始输入（求职问题/偏好描述）,
+      "prompt":      经Agent优化后的完整回答,
       "images":      [{url, local_path, timestamp}, ...],
-      "selected":    被选中的图片url / null,
+      "selected":    被选中的回答url / null,
       "created_at":  时间戳,
     },
     ...
   },
-  "style_weights":    { "关键词": float },  # 自动学习的风格偏好
+  "style_weights":    { "关键词": float },  # 自动学习的求职偏好
   "reference_images": [{ "path": ..., "label": ... }],
   "save_path":        会话文件路径
 }
@@ -60,6 +60,8 @@ def _new_node(node_id: str, parent_id: Optional[str], user_input: str) -> dict:
         "children":   [],
         "user_input": user_input,
         "prompt":     "",          # 由Agent填写
+        "answer":     "",          # 文字问答的回答
+        "answer_selected": False,  # 回答是否被选中
         "images":     [],
         "attachments": [],
         "selected_list": [],
@@ -173,6 +175,22 @@ def set_node_prompt(session: dict, node_id: str, prompt: str) -> None:
     _save(session)
 
 
+def set_node_answer(session: dict, node_id: str, answer: str) -> None:
+    """保存文字问答的回答。"""
+    session["nodes"][node_id]["answer"] = answer
+    session["nodes"][node_id]["generating"] = False
+    _save(session)
+
+
+def toggle_answer_selected(session: dict, node_id: str) -> bool:
+    """切换文字回答的选中状态，返回新的选中状态。"""
+    node = session["nodes"][node_id]
+    new_state = not node.get("answer_selected", False)
+    node["answer_selected"] = new_state
+    _save(session)
+    return new_state
+
+
 def add_images(session: dict, node_id: str, images: list[dict]) -> None:
     """将生成的图片列表写入节点。images = [{url, local_path}]"""
     ok_images = [
@@ -180,6 +198,7 @@ def add_images(session: dict, node_id: str, images: list[dict]) -> None:
         if isinstance(img, dict) and img.get("url")
     ]
     session["nodes"][node_id]["images"].extend(ok_images)
+    session["nodes"][node_id]["generating"] = False
     _save(session)
 
 
@@ -316,14 +335,18 @@ def get_tree_for_ui(session: dict) -> dict:
         node = session["nodes"][node_id]
         _ensure_node_selection(node)
         selected_count = len(node.get("selected_list", []))
+        answer_text = node.get("answer", "")
         return {
             "id":         node["id"],
             "label":      node["user_input"][:30] + ("…" if len(node["user_input"]) > 30 else ""),
-            "selected":   selected_count > 0,
+            "selected":   selected_count > 0 or bool(node.get("answer_selected", False)),
             "selected_count": selected_count,
             "images":     len(node["images"]),
+            "has_answer": bool(answer_text),
+            "answer_selected": node.get("answer_selected", False),
+            "answer":     answer_text,
             "is_current": node["id"] == session["current_node"],
-            "generating": node.get("generating", False),
+            "generating": node.get("generating", False) and not (bool(node.get("images")) or bool(answer_text)),
             "children":   [_build(c) for c in node["children"]],
         }
     return _build("root")
@@ -333,58 +356,83 @@ def get_tree_for_ui(session: dict) -> dict:
 # 风格权重（自动学习）
 # ─────────────────────────────────────────────
 
-# 建筑相关的风格关键词列表，用于从prompt中提取
+# 求职匹配相关的主题关键词列表
 STYLE_KEYWORDS = [
-    "现代", "简约", "古典", "新古典", "巴洛克", "工业风", "未来主义",
-    "玻璃幕墙", "混凝土", "木材", "钢结构", "砖石",
-    "自然采光", "大出挑", "悬挑", "绿化", "屋顶花园",
-    "对称", "非对称", "曲线", "直线", "几何",
-    "暖色调", "冷色调", "白色", "灰色",
-    "黄昏", "夜景", "晴天", "鸟瞰", "透视",
-    "高层", "低层", "商业", "住宅", "文化",
+    "互联网", "金融", "教育", "医疗", "制造业", "电商",
+    "前端开发", "后端开发", "数据分析", "产品经理", "UI设计",
+    "算法", "测试", "运维", "项目管理", "市场营销",
+    "Java", "Python", "C++", "Go", "JavaScript",
+    "实习", "校招", "社招", "全职", "兼职",
+    "大厂", "外企", "国企", "创业公司", "外企文化",
+    "技术栈", "项目经验", "学历", "竞赛", "开源",
+    "简历优化", "面试技巧", "薪资谈判", "职业规划", "行业趋势",
+    "远程工作", "加班文化", "工作生活平衡", "晋升空间", "团队氛围",
+    "机器学习", "深度学习", "自然语言处理", "计算机视觉", "大数据",
+    "云计算", "网络安全", "区块链", "物联网", "嵌入式",
 ]
 
 STYLE_ALIASES = {
-    "现代": ["现代", "现代风", "modern", "contemporary"],
-    "简约": ["简约", "极简", "minimal", "minimalist"],
-    "古典": ["古典", "classic", "classical"],
-    "新古典": ["新古典", "neoclassical", "neo classical"],
-    "巴洛克": ["巴洛克", "baroque"],
-    "工业风": ["工业风", "industrial"],
-    "未来主义": ["未来主义", "futuristic", "future"],
-    "玻璃幕墙": ["玻璃幕墙", "curtain wall", "glass facade"],
-    "混凝土": ["混凝土", "concrete"],
-    "木材": ["木材", "木质", "wood"],
-    "钢结构": ["钢结构", "steel structure", "steel frame"],
-    "砖石": ["砖石", "brick", "masonry"],
-    "自然采光": ["自然采光", "natural light", "daylight"],
-    "大出挑": ["大出挑", "large cantilever", "deep overhang"],
-    "悬挑": ["悬挑", "cantilever", "overhang"],
-    "绿化": ["绿化", "landscape", "greenery"],
-    "屋顶花园": ["屋顶花园", "roof garden", "rooftop garden"],
-    "对称": ["对称", "symmetry", "symmetrical"],
-    "非对称": ["非对称", "asymmetry", "asymmetrical"],
-    "曲线": ["曲线", "curved", "curve"],
-    "直线": ["直线", "straight line", "linear"],
-    "几何": ["几何", "geometric", "geometry"],
-    "暖色调": ["暖色调", "warm tone", "warm color"],
-    "冷色调": ["冷色调", "cool tone", "cool color"],
-    "白色": ["白色", "white"],
-    "灰色": ["灰色", "gray", "grey"],
-    "黄昏": ["黄昏", "dusk", "sunset"],
-    "夜景": ["夜景", "night scene", "night"],
-    "晴天": ["晴天", "sunny", "clear sky"],
-    "鸟瞰": ["鸟瞰", "aerial view", "bird view", "bird's-eye"],
-    "透视": ["透视", "perspective"],
-    "高层": ["高层", "high-rise", "tower"],
-    "低层": ["低层", "low-rise"],
-    "商业": ["商业", "commercial"],
-    "住宅": ["住宅", "residential"],
-    "文化": ["文化", "cultural"],
+    "互联网": ["互联网", "internet", "IT行业", "科技行业"],
+    "金融": ["金融", "finance", "银行", "券商", "基金"],
+    "教育": ["教育", "education", "在线教育", "培训"],
+    "医疗": ["医疗", "health", "医药", "生物"],
+    "制造业": ["制造业", "manufacturing", "工业", "工厂"],
+    "电商": ["电商", "ecommerce", "电子商务", "购物平台"],
+    "前端开发": ["前端", "frontend", "web前端", "FE", "前端开发"],
+    "后端开发": ["后端", "backend", "服务端", "BE", "后端开发"],
+    "数据分析": ["数据分析", "data analysis", "数据挖掘", "BI"],
+    "产品经理": ["产品经理", "PM", "产品", "product manager"],
+    "UI设计": ["UI设计", "UI", "UX", "交互设计", "视觉设计"],
+    "算法": ["算法", "algorithm", "算法工程师", "AI算法"],
+    "测试": ["测试", "QA", "测试开发", "自动化测试"],
+    "运维": ["运维", "ops", "DevOps", "SRE", "运维开发"],
+    "项目管理": ["项目管理", "project management", "scrum", "敏捷"],
+    "市场营销": ["市场营销", "marketing", "品牌", "运营"],
+    "Java": ["Java", "java", "JVM", "Spring"],
+    "Python": ["Python", "python", "Django", "Flask"],
+    "C++": ["C++", "cpp", "c plus plus", "C语言"],
+    "Go": ["Go", "golang", "Golang"],
+    "JavaScript": ["JavaScript", "JS", "javascript", "TypeScript", "TS"],
+    "实习": ["实习", "intern", "internship", "暑期实习"],
+    "校招": ["校招", "campus", "校园招聘", "应届"],
+    "社招": ["社招", "社会招聘", "有经验", "跳槽"],
+    "全职": ["全职", "full-time", "fulltime"],
+    "兼职": ["兼职", "part-time", "parttime"],
+    "大厂": ["大厂", "BAT", "大公司", "头部企业", "互联网大厂"],
+    "外企": ["外企", "foreign", "跨国公司", "MNC"],
+    "国企": ["国企", "央企", "国有", "体制内"],
+    "创业公司": ["创业", "startup", "初创", "独角兽"],
+    "外企文化": ["外企文化", "WLB", "工作生活平衡", "flat"],
+    "技术栈": ["技术栈", "tech stack", "技能", "技术方向"],
+    "项目经验": ["项目经验", "项目", "project", "项目经历"],
+    "学历": ["学历", "degree", "本科", "硕士", "博士", "985", "211"],
+    "竞赛": ["竞赛", "contest", "ACM", "比赛", "奖学金"],
+    "开源": ["开源", "open source", "github", "贡献"],
+    "简历优化": ["简历优化", "简历", "resume", "CV", "简历修改"],
+    "面试技巧": ["面试技巧", "面试", "interview", "笔试", "面经"],
+    "薪资谈判": ["薪资谈判", "薪资", "salary", "offer", "薪酬"],
+    "职业规划": ["职业规划", "career path", "发展方向", "晋升"],
+    "行业趋势": ["行业趋势", "trend", "发展前景", "风口"],
+    "远程工作": ["远程", "remote", "居家办公", "分布式"],
+    "加班文化": ["加班", "996", "007", "内卷"],
+    "工作生活平衡": ["工作生活平衡", "WLB", "work life balance"],
+    "晋升空间": ["晋升", "promotion", "成长空间", "职级"],
+    "团队氛围": ["团队氛围", "team culture", "同事", "管理"],
+    "机器学习": ["机器学习", "ML", "machine learning"],
+    "深度学习": ["深度学习", "DL", "deep learning", "神经网络"],
+    "自然语言处理": ["NLP", "自然语言处理", "文本处理"],
+    "计算机视觉": ["CV", "计算机视觉", "图像识别"],
+    "大数据": ["大数据", "big data", "数据工程", "Hadoop", "Spark"],
+    "云计算": ["云计算", "cloud", "AWS", "Azure"],
+    "网络安全": ["网络安全", "security", "信息安全", "渗透"],
+    "区块链": ["区块链", "blockchain", "Web3", "链"],
+    "物联网": ["物联网", "IoT", "嵌入式物联网"],
+    "嵌入式": ["嵌入式", "embedded", "单片机", "RTOS"],
 }
 
 NEGATION_CUES = [
     "不要", "不需要", "不要再", "别", "避免", "拒绝", "去掉", "取消", "不想要",
+    "不关注", "不感兴趣", "跳过",
     "without", "avoid", "no ", "not ",
 ]
 
@@ -520,7 +568,7 @@ def get_style_candidates(session: dict, top_n: int = 14) -> list[dict]:
         score_map[kw] = score_map.get(kw, 0.0) + abs(float(w)) * 1.6
 
     ranked = [k for k, _ in sorted(score_map.items(), key=lambda x: x[1], reverse=True)]
-    defaults = ["现代", "简约", "工业风", "玻璃幕墙", "混凝土", "木材", "自然采光", "夜景", "鸟瞰", "透视", "商业", "住宅"]
+    defaults = ["互联网", "前端开发", "后端开发", "数据分析", "产品经理", "简历优化", "面试技巧", "Java", "Python", "大厂", "校招", "职业规划"]
 
     candidates: list[str] = []
     for kw in ranked + defaults + STYLE_KEYWORDS:
@@ -679,7 +727,20 @@ def _migrate_session_schema(session: dict) -> None:
             continue
         if not isinstance(node.get("attachments"), list):
             node["attachments"] = []
+        if "answer" not in node:
+            node["answer"] = ""
+        if "answer_selected" not in node:
+            node["answer_selected"] = False
+        # 修复旧数据：已有内容但 generating 仍为 True 的节点
+        if node.get("generating") and (bool(node.get("images")) or bool(node.get("answer"))):
+            node["generating"] = False
         _ensure_node_selection(node)
+    # 清理旧的style_weights中不属于当前关键词的条目
+    weights = session.get("style_weights", {})
+    if isinstance(weights, dict):
+        invalid_keys = [k for k in weights if k not in STYLE_KEYWORDS]
+        for k in invalid_keys:
+            weights.pop(k, None)
 
 
 def _build_path_style_weights(path: list[dict]) -> dict:

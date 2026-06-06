@@ -13,19 +13,22 @@ import json
 import tempfile
 import time
 import base64
+import re
 from pathlib import Path
 
 import uvicorn
+import httpx
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel
 from typing import Optional
 
 import state_manager as sm
 import agent
+import guided_tree as gt
 
-app = FastAPI(title="ArchAI Design Studio")
+app = FastAPI(title="OfferTree - AI求职智能匹配")
 
 # 获取exe所在目录（兼容开发环境和打包后）
 def get_app_dir() -> Path:
@@ -72,17 +75,25 @@ def load_api_keys_from_config():
     """从配置文件加载API keys"""
     config = load_config()
     keys = config.get('api_keys', {})
-    if keys:
-        if keys.get('openai'):
-            agent.PLATFORMS["openai"]["api_key"] = agent._sanitize_api_key(keys['openai'])
-        if keys.get('openrouter'):
-            agent.PLATFORMS["openrouter"]["api_key"] = agent._sanitize_api_key(keys['openrouter'])
-        if keys.get('v3'):
-            agent.PLATFORMS["v3"]["api_key"] = agent._sanitize_api_key(keys['v3'])
-        if keys.get('deepseek'):
-            agent.PLATFORMS["deepseek"]["api_key"] = agent._sanitize_api_key(keys['deepseek'])
-        if keys.get('volcengine'):
-            agent.PLATFORMS["volcengine"]["api_key"] = agent._sanitize_api_key(keys['volcengine'])
+    openai_key = None
+    if keys.get('openai'):
+        openai_key = agent._sanitize_api_key(keys['openai'])
+    elif config.get('openai_api_key'):
+        openai_key = agent._sanitize_api_key(config.get('openai_api_key'))
+
+    if openai_key:
+        agent.PLATFORMS["openai"]["api_key"] = openai_key
+        os.environ["OPENAI_API_KEY"] = openai_key
+
+    if keys.get('openrouter'):
+        agent.PLATFORMS["openrouter"]["api_key"] = agent._sanitize_api_key(keys['openrouter'])
+    if keys.get('v3'):
+        agent.PLATFORMS["v3"]["api_key"] = agent._sanitize_api_key(keys['v3'])
+    if keys.get('deepseek'):
+        agent.PLATFORMS["deepseek"]["api_key"] = agent._sanitize_api_key(keys['deepseek'])
+    if keys.get('volcengine'):
+        agent.PLATFORMS["volcengine"]["api_key"] = agent._sanitize_api_key(keys['volcengine'])
+    if openai_key or keys:
         print(f"[info] Loaded API keys from config: {CONFIG_FILE}")
 
 
@@ -210,6 +221,11 @@ def get_state():
     current_selected_urls = sm.get_node_selected_urls(s)
     current_attachments = sm.get_node_attachments(s)
     current_path_node_ids = [n["id"] for n in sm.get_path_to_root(s)]
+    # 收集路径上的问答对（用于文字模式恢复）
+    path_qa = []
+    for n in sm.get_path_to_root(s):
+        if n["id"] != "root" and n.get("answer"):
+            path_qa.append({"question": n["user_input"], "answer": n["answer"]})
     return {
         "project":       s["project"],
         "current_node":  s["current_node"],
@@ -223,11 +239,14 @@ def get_state():
         "path_tags":     _path_tags(s),
         "current_images": cur["images"],
         "current_prompt": cur["prompt"],
+        "current_answer": cur.get("answer", ""),
+        "current_answer_selected": cur.get("answer_selected", False),
         "current_selected": cur.get("selected"),  # legacy
         "current_selecteds": current_selected_urls,
         "current_attached_images": current_attachments,  # legacy alias
         "current_attachments": current_attachments,
-        "generating":    cur.get("generating", False),
+        "generating":    cur.get("generating", False) and not (bool(cur.get("images")) or bool(cur.get("answer"))),
+        "path_qa":       path_qa,
     }
 
 
@@ -235,10 +254,11 @@ def get_state():
 
 class GenerateReq(BaseModel):
     user_input: str
-    n: int = 4
+    history: Optional[list[dict]] = None
+    model_memory: Optional[str] = None
+    n: Optional[int] = 1
     parent_node_id: Optional[str] = None
     optimize_prompt: bool = True
-    model_memory: Optional[str] = None
     prompt_images: Optional[list[dict]] = None  # 附带图片
 
 class PolishReq(BaseModel):
@@ -248,6 +268,11 @@ class PolishReq(BaseModel):
 def polish_prompt(req: PolishReq):
     """润色提示词（不生成图片）"""
     s = _require_session()
+    # 校验 API Key
+    text_api_key = agent._sanitize_api_key(agent._get_text_api_key())
+    text_platform_name = agent.PLATFORMS[agent._current_text_platform]["name"]
+    if not text_api_key:
+        raise HTTPException(400, f"未设置 {text_platform_name} 的 API Key，请在设置页面配置")
     try:
         context = sm.build_context_for_agent(s, req.user_input, None)
     except ValueError as e:
@@ -256,7 +281,6 @@ def polish_prompt(req: PolishReq):
         polished = agent.prompt_agent(context)
         return {"polished_prompt": polished, "optimized": True, "warning": None}
     except Exception as e:
-        # 余额不足/配额错误等场景下，不中断流程，自动退回本地路径记忆拼接
         polished = agent.compose_prompt_from_context(context)
         return {
             "polished_prompt": polished,
@@ -265,97 +289,140 @@ def polish_prompt(req: PolishReq):
         }
 
 @app.post("/api/generate")
-def generate(req: GenerateReq):
+async def generate(req: GenerateReq):
+    """文本问答（流式），使用配置的文本平台，同时保存到树节点"""
     s = _require_session()
-    if req.parent_node_id and req.parent_node_id not in s["nodes"]:
-        raise HTTPException(400, f"节点 {req.parent_node_id} 不存在")
-    base_node_id = req.parent_node_id or s["current_node"]
 
-    # 先创建节点（确保刷新后不丢失）
-    try:
-        node = sm.add_node(s, req.user_input, req.parent_node_id)
-    except ValueError as e:
-        raise HTTPException(400, str(e))
+    # 先创建节点
+    node = sm.add_node(s, req.user_input, req.parent_node_id)
     node_id = node["id"]
 
-    # 保存用户上传的附带图片（data URL -> static 文件）
-    attachments = _save_prompt_attachments(req.prompt_images or [])
-    if attachments:
-        sm.add_attachments(s, node_id, attachments)
+    input_items = []
+    if req.history:
+        # 只保留最近10条历史（5轮QA），避免token过多导致慢
+        recent_history = req.history[-10:] if len(req.history) > 10 else req.history
+        for item in recent_history:
+            role = str(item.get("role") or "").strip().lower()
+            content = str(item.get("content") or "").strip()[:2000]  # 限制单条长度
+            if role in {"user", "assistant"} and content:
+                input_items.append({"role": role, "content": content})
+
+    input_items.append({"role": "user", "content": req.user_input})
+
+    instructions = (
+        "你是一名AI求职智能匹配助手，擅长帮助学生匹配合适的岗位、评估简历与岗位的匹配度、优化简历提升通过初筛的命中率。"
+        "你可以根据用户的专业、爱好、技能等个人信息，推荐合适的职业方向和具体岗位。"
+        "你还可以分析用户简历与目标岗位的匹配度，给出具体的简历优化建议。"
+        "回答要结构清晰、逻辑完整、表述准确，尽量用中文回答。"
+        "如果用户提出具体问题，直接给出完整答案，不要只给片段。"
+        "请保持上下文连贯，并在回答中使用分点或示例来提升可读性。"
+    )
+
+    api_key = agent._sanitize_api_key(agent._get_text_api_key())
+    text_platform = agent._current_text_platform
+    config = agent.PLATFORMS[text_platform]
+    base_url = config["base_url"]
+
+    # 校验 API Key
+    if not api_key:
+        sm.remove_node(s, node_id)
+        raise HTTPException(400, f"未设置 {config['name']} 的 API Key，请在设置页面配置")
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    if text_platform == "openrouter":
+        headers["HTTP-Referer"] = "https://localhost:8000"
+        headers["X-Title"] = "OfferTree"
+
+    endpoint = "/v1/chat/completions"
+    if text_platform == "volcengine":
+        endpoint = "/chat/completions"
+
+    payload = {
+        "model": agent._current_text_model,
+        "messages": [{"role": "system", "content": instructions}] + input_items,
+        "max_tokens": 2048,
+        "temperature": 0.3,
+        "stream": True,
+    }
+
+    # 用闭包捕获 session 引用
+    _session_ref = s
+
+    async def event_stream():
+        full_text = ""
+        try:
+            async with httpx.AsyncClient(timeout=120) as client:
+                async with client.stream("POST", f"{base_url}{endpoint}", headers=headers, json=payload) as resp:
+                    if resp.status_code != 200:
+                        error_body = await resp.aread()
+                        err_msg = f"\n[错误] API 返回 {resp.status_code}: {error_body.decode('utf-8', errors='replace')[:300]}"
+                        sm.set_node_answer(_session_ref, node_id, err_msg)
+                        yield err_msg
+                        return
+                    async for line in resp.aiter_lines():
+                        line = line.strip()
+                        if not line or not line.startswith("data: "):
+                            continue
+                        data_str = line[6:]
+                        if data_str == "[DONE]":
+                            break
+                        try:
+                            chunk = json.loads(data_str)
+                            delta = chunk.get("choices", [{}])[0].get("delta", {})
+                            content = delta.get("content", "")
+                            if content:
+                                full_text += content
+                                yield content
+                        except Exception:
+                            pass
+        except Exception as e:
+            err_msg = f"\n[错误] {e}"
+            sm.set_node_answer(_session_ref, node_id, err_msg)
+            yield err_msg
+            return
+        # 流式完成，保存回答到节点
+        sm.set_node_answer(_session_ref, node_id, full_text)
+
+    return StreamingResponse(event_stream(), media_type="text/plain; charset=utf-8")
+
+
+# ── 画图（可选功能） ────────────────────────────
+
+class GenerateImageReq(BaseModel):
+    user_input: str
+    n: int = 1
+
+@app.post("/api/generate_image")
+async def generate_image(req: GenerateImageReq):
+    """生成示意图，同时保存到树节点"""
+    s = _require_session()
+
+    # 校验 API Key
+    image_api_key = agent._sanitize_api_key(agent._get_api_key())
+    image_platform_name = agent.PLATFORMS[agent._current_platform]["name"]
+    if not image_api_key:
+        raise HTTPException(400, f"未设置 {image_platform_name} 的 API Key，请在设置页面配置")
+
+    # 创建节点
+    node = sm.add_node(s, req.user_input)
+    node_id = node["id"]
 
     try:
-        # 严格路径记忆：只取 root -> base_node_id（父指针链，不按节点编号顺序）
-        context = sm.build_context_for_agent(s, req.user_input, base_node_id)
-    except ValueError as e:
-        raise HTTPException(400, str(e))
-
-    # 将“当前新节点”上传图也加入本次上下文（同级分支不参与）
-    path_attachments = list(context.get("path_attachments") or [])
-    for att in attachments:
-        if isinstance(att, dict) and att.get("url"):
-            path_attachments.append({
-                "node_id": node_id,
-                "url": att.get("url"),
-                "name": att.get("name", ""),
-            })
-    context["path_attachments"] = path_attachments
-    
-    # 添加模型记忆到context
-    if req.model_memory:
-        context["model_memory"] = req.model_memory
-
-    prompt_warning = None
-    if req.optimize_prompt:
-        try:
-            prompt = agent.prompt_agent(context)
-        except Exception as e:
-            prompt = agent.compose_prompt_from_context(context)
-            prompt_warning = f"AI润色失败，已切换为路径记忆拼接：{e}"
-            print(f"[warn] prompt_agent failed: {e}")
-    else:
-        prompt = agent.compose_prompt_from_context(context)
-
-    sm.set_node_prompt(s, node_id, prompt)
-
-    # 逐张生成图片，每张生成后立即保存
-    def on_image_ready(img_dict):
-        """每张图片生成后立即保存到session"""
-        if img_dict.get("url"):
-            sm.add_images(s, node_id, [img_dict])
-    
-    images = agent.generate_images(
-        prompt, n=req.n,
-        save_dir=APP_DIR / "static" / "uploads",
-        on_image_ready=on_image_ready,
-    )
-    
-    ok_images = [
-        img for img in images
-        if isinstance(img, dict) and img.get("url")
-    ]
-    if not ok_images:
-        # 生成失败，删除空节点
-        _cleanup_attachment_files(attachments)
-        sm.remove_node(s, node_id)
-        first_error = next(
-            (img.get("error") for img in images if isinstance(img, dict) and img.get("error")),
-            "未生成任何可用图片"
+        images = agent.generate_images(
+            prompt=req.user_input + ", network diagram, educational illustration, clean and clear",
+            n=req.n,
+            size="1792x1024",
         )
-        raise HTTPException(502, f"本次生成失败：{first_error}")
-
-    # 图片已在回调中逐张保存，这里只做最终保存
-    s["nodes"][node_id]["generating"] = False
-    sm._save(s)
-
-    return {
-        "node_id": node_id,
-        "optimized_prompt": prompt,
-        "prompt_optimized": req.optimize_prompt,
-        "prompt_warning": prompt_warning,
-        "context_path_node_ids": context.get("path_node_ids", []),
-        "attachments": attachments,
-        "images": s["nodes"][node_id]["images"],
-    }
+        sm.add_images(s, node_id, images)
+        sm.set_node_prompt(s, node_id, req.user_input)
+        return {"images": images, "node_id": node_id}
+    except Exception as e:
+        # 生成失败，移除节点
+        sm.remove_node(s, node_id)
+        raise HTTPException(500, f"画图失败: {e}")
 
 
 # ── 选图 ─────────────────────────────────────
@@ -402,6 +469,773 @@ def switch_node(req: SwitchNodeReq):
     except ValueError as e:
         raise HTTPException(400, str(e))
     return {"ok": True, "current_node": s["current_node"]}
+
+
+class ToggleAnswerSelectedReq(BaseModel):
+    node_id: Optional[str] = None
+
+
+# ── 引导式求职匹配 ─────────────────────────────
+
+def _get_guided_tree(s: dict) -> dict:
+    """获取引导树，不存在则初始化"""
+    if "guided_tree" not in s:
+        s["guided_tree"] = {
+            "id": "root",
+            "question": "",
+            "options": [],
+            "selected_option": "",
+            "selected_options": [],
+            "multi_select": False,
+            "max_select": 1,
+            "children": {},
+        }
+    return s["guided_tree"]
+
+
+def _find_node_by_id(tree: dict, node_id: str) -> dict | None:
+    """在树中递归查找指定ID的节点"""
+    if not tree:
+        return None
+    if tree.get("id") == node_id:
+        return tree
+    for child in tree.get("children", {}).values():
+        found = _find_node_by_id(child, node_id)
+        if found:
+            return found
+    return None
+
+
+def _rebuild_guided_messages(s: dict):
+    """根据当前树的选中路径，重建AI对话历史"""
+    tree = _get_guided_tree(s)
+    messages = [{"role": "system", "content": gt.SYSTEM_PROMPT}] + gt.get_path_messages(tree)
+    s["guided_messages"] = messages
+
+
+class GuidedStartReq(BaseModel):
+    project_name: str = "求职匹配"
+
+@app.post("/api/guided/start")
+async def guided_start(req: GuidedStartReq):
+    """开始引导式求职匹配，AI生成第一个问题"""
+    global _session, _last_session_path
+
+    # 创建新项目
+    _session = sm.new_session(req.project_name)
+    _last_session_path = _session["save_path"]
+
+    # 初始化引导树和对话历史
+    _session["guided_answers"] = []
+    _session["guided_messages"] = [
+        {"role": "system", "content": gt.SYSTEM_PROMPT},
+    ]
+    _session["guided_tree"] = {
+        "id": "root",
+        "question": "",
+        "options": [],
+        "selected_option": "",
+        "selected_options": [],
+        "multi_select": False,
+        "max_select": 1,
+        "children": {},
+    }
+
+    # 调用AI生成第一个问题
+    return await _ai_generate_next_question(_session)
+
+
+class GuidedRespondReq(BaseModel):
+    current_node_id: Optional[str] = None
+    user_answer: str       # 用户选择的选项或输入的文本
+    multi_answers: Optional[list[str]] = None
+    project_name: Optional[str] = None
+
+@app.post("/api/guided/respond")
+async def guided_respond(req: GuidedRespondReq):
+    """用户回答后，将回答添加到树节点，AI动态生成下一个问题或匹配结果"""
+    s = _require_session()
+
+    tree = _get_guided_tree(s)
+
+    # 找到当前叶子节点（用户正在回答的节点）
+    leaf = tree
+    while leaf.get("selected_option") and leaf.get("selected_option") in leaf.get("children", {}):
+        leaf = leaf["children"][leaf["selected_option"]]
+
+    # 如果用户提供了node_id，优先使用它定位
+    if req.current_node_id:
+        found = _find_node_by_id(tree, req.current_node_id)
+        if found:
+            leaf = found
+
+    # 记录用户选择到树的当前叶子节点
+    answers_to_record = req.multi_answers or [req.user_answer]
+    user_text = "、".join([a for a in answers_to_record if a])
+
+    leaf["selected_option"] = user_text
+    leaf["selected_options"] = [a for a in answers_to_record if a]
+
+    # 如果该选择还没有子节点，创建一个占位子节点
+    if user_text not in leaf.get("children", {}):
+        if "children" not in leaf:
+            leaf["children"] = {}
+        leaf["children"][user_text] = {
+            "id": f"node_{int(time.time()*1000)}",
+            "question": "",
+            "options": [],
+            "selected_option": "",
+            "selected_options": [],
+            "multi_select": False,
+            "max_select": 1,
+            "children": {},
+        }
+
+    # 重建对话历史（基于树的选中路径）
+    _rebuild_guided_messages(s)
+
+    # 更新guided_answers（基于路径）
+    s["guided_answers"] = gt.get_path_answers(tree)
+
+    # 同时在状态树中添加节点
+    node = sm.add_node(s, user_text)
+    sm._save(s)
+
+    # 调用AI生成下一个问题
+    return await _ai_generate_next_question(s)
+
+
+class GuidedBranchReq(BaseModel):
+    """用户点击树中的节点，选择一个不同选项来分支"""
+    node_id: str
+    new_option: str  # 用户新选择的选项
+
+@app.post("/api/guided/branch")
+async def guided_branch(req: GuidedBranchReq):
+    """用户在树中切换到不同分支，AI生成该分支的下一个问题"""
+    s = _require_session()
+
+    tree = _get_guided_tree(s)
+
+    # 找到目标节点
+    target = _find_node_by_id(tree, req.node_id)
+    if not target:
+        raise HTTPException(400, f"节点 {req.node_id} 不存在")
+
+    # 更新选择（清除旧的子树选中路径）
+    target["selected_option"] = req.new_option
+    target["selected_options"] = [req.new_option]
+
+    # 如果该选择还没有子节点，创建占位
+    if req.new_option not in target.get("children", {}):
+        if "children" not in target:
+            target["children"] = {}
+        target["children"][req.new_option] = {
+            "id": f"node_{int(time.time()*1000)}",
+            "question": "",
+            "options": [],
+            "selected_option": "",
+            "selected_options": [],
+            "multi_select": False,
+            "max_select": 1,
+            "children": {},
+        }
+
+    # 重建对话历史
+    _rebuild_guided_messages(s)
+
+    # 更新guided_answers
+    s["guided_answers"] = gt.get_path_answers(tree)
+
+    # 如果新分支的子节点已有问题（之前问过），直接返回
+    child = target["children"][req.new_option]
+    if child.get("question"):
+        sm._save(s)
+        # 如果子节点已经有selected_option，继续沿着路径走
+        cur = child
+        while cur.get("selected_option") and cur["selected_option"] in cur.get("children", {}):
+            cur = cur["children"][cur["selected_option"]]
+
+        if cur.get("question"):
+            return {
+                "ok": True,
+                "node_id": cur["id"],
+                "question": cur["question"],
+                "options": cur.get("options", []),
+                "input_type": "select_or_text",
+                "multi_select": cur.get("multi_select", False),
+                "max_select": cur.get("max_select", 1),
+                "is_result": False,
+                "ai_generate": True,
+                "tree": gt.build_tree_for_ui(tree),
+            }
+
+    # 新分支没有问题，调用AI生成
+    return await _ai_generate_next_question(s)
+
+
+class GuidedNavigateReq(BaseModel):
+    """用户点击树中的中间节点，回退到该节点重新选择"""
+    node_id: str
+
+
+@app.post("/api/guided/navigate")
+async def guided_navigate(req: GuidedNavigateReq):
+    """用户点击树中的中间节点，回退到该节点重新选择"""
+    s = _require_session()
+
+    tree = _get_guided_tree(s)
+
+    # 找到目标节点
+    target = _find_node_by_id(tree, req.node_id)
+    if not target:
+        raise HTTPException(400, f"节点 {req.node_id} 不存在")
+
+    # 清除目标节点的selected_option，使其成为当前叶子
+    target["selected_option"] = ""
+    target["selected_options"] = []
+
+    # 重建对话历史和答案
+    _rebuild_guided_messages(s)
+    s["guided_answers"] = gt.get_path_answers(tree)
+    sm._save(s)
+
+    # 返回该节点的问题和选项
+    return {
+        "ok": True,
+        "node_id": target["id"],
+        "question": target.get("question", ""),
+        "options": target.get("options", []),
+        "input_type": "select_or_text",
+        "multi_select": target.get("multi_select", False),
+        "max_select": target.get("max_select", 1),
+        "is_result": False,
+        "ai_generate": True,
+        "tree": gt.build_tree_for_ui(tree),
+    }
+
+
+async def _ai_generate_next_question(s: dict):
+    """调用AI根据对话历史动态生成下一个问题或触发匹配结果"""
+    api_key = agent._sanitize_api_key(agent._get_text_api_key())
+    text_platform = agent._current_text_platform
+    config = agent.PLATFORMS[text_platform]
+    base_url = config["base_url"]
+
+    if not api_key:
+        raise HTTPException(400, f"未设置 {config['name']} 的 API Key，请在设置页面配置")
+
+    messages = s.get("guided_messages", [])
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    if text_platform == "openrouter":
+        headers["HTTP-Referer"] = "https://localhost:8000"
+        headers["X-Title"] = "OfferTree"
+
+    endpoint = "/v1/chat/completions"
+    if text_platform == "volcengine":
+        endpoint = "/chat/completions"
+
+    payload = {
+        "model": agent._current_text_model,
+        "messages": messages,
+        "max_tokens": 500,
+        "temperature": 0.5,
+        "stream": False,
+    }
+
+    # 默认值（AI调用失败时使用）
+    question = "你目前感兴趣或学习的领域是什么？"
+    options = ["计算机/IT", "金融/经济", "法律", "教育", "医疗/生物", "其他"]
+    action = "ask"
+    multi_select = False
+    max_select = 1
+
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(f"{base_url}{endpoint}", headers=headers, json=payload)
+            if resp.status_code != 200:
+                pass
+            else:
+                data = resp.json()
+                text = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+                try:
+                    clean_text = re.sub(r'```(?:json)?\s*', '', text).strip().rstrip('`').strip()
+                    json_match = re.search(r'\{.*\}', clean_text, re.DOTALL)
+                    if json_match:
+                        parsed = json.loads(json_match.group())
+                        question = parsed.get("question", question)
+                        options = parsed.get("options", options)
+                        action = parsed.get("action", "ask")
+                        multi_select = parsed.get("multi_select", False)
+                        max_select = parsed.get("max_select", 1)
+                    else:
+                        parsed = json.loads(clean_text)
+                        question = parsed.get("question", question)
+                        options = parsed.get("options", options)
+                        action = parsed.get("action", "ask")
+                        multi_select = parsed.get("multi_select", False)
+                        max_select = parsed.get("max_select", 1)
+                except (json.JSONDecodeError, AttributeError):
+                    if text and len(text) < 200:
+                        question = text
+    except Exception:
+        pass
+
+    # 将AI生成的问题写入树的当前叶子节点
+    tree = _get_guided_tree(s)
+    leaf = tree
+    while leaf.get("selected_option") and leaf["selected_option"] in leaf.get("children", {}):
+        leaf = leaf["children"][leaf["selected_option"]]
+
+    if not leaf.get("id"):
+        leaf["id"] = f"node_{int(time.time()*1000)}"
+    leaf["question"] = question
+    leaf["options"] = options
+    leaf["multi_select"] = multi_select
+    leaf["max_select"] = max_select
+    # selected_option 已经在 respond 时设置过了（如果是新问题则是空的）
+
+    # 记录AI的回复到对话历史
+    ai_response = json.dumps({"question": question, "options": options, "action": action}, ensure_ascii=False)
+    s["guided_messages"].append({"role": "assistant", "content": ai_response})
+    sm._save(s)
+
+    # 构建前端树
+    ui_tree = gt.build_tree_for_ui(tree)
+
+    if action == "result":
+        return await _generate_match_result(s, "match_result")
+
+    return {
+        "ok": True,
+        "node_id": leaf["id"],
+        "question": question,
+        "options": options,
+        "input_type": "select_or_text",
+        "multi_select": multi_select,
+        "max_select": max_select,
+        "is_result": False,
+        "ai_generate": True,
+        "tree": ui_tree,
+    }
+
+
+async def _generate_match_result(s: dict, node_id: str):
+    """调用AI根据用户画像生成匹配结果（流式）"""
+    api_key = agent._sanitize_api_key(agent._get_text_api_key())
+    text_platform = agent._current_text_platform
+    config = agent.PLATFORMS[text_platform]
+    base_url = config["base_url"]
+
+    if not api_key:
+        raise HTTPException(400, f"未设置 {config['name']} 的 API Key，请在设置页面配置")
+
+    profile = gt.build_user_profile(s.get("guided_answers", []))
+
+    match_prompt = f"""你是一名AI求职匹配专家。请根据以下用户画像，推荐最匹配的岗位方向和具体职位。
+
+用户画像：
+{profile}
+
+请输出：
+1. **推荐岗位方向**（按匹配度从高到低排列，至少3个方向）
+   每个方向包含：
+   - 岗位名称
+   - 匹配度（0-100%）
+   - 匹配原因（结合用户画像说明）
+   - 适合的具体职位举例
+
+2. **技能差距分析**
+   - 用户已具备的核心技能
+   - 需要补充的技能
+   - 推荐的学习路径
+
+3. **求职策略建议**
+   - 简历重点突出的方向
+   - 目标公司类型建议
+   - 面试准备重点
+
+请确保推荐具体、有针对性、可操作。"""
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    if text_platform == "openrouter":
+        headers["HTTP-Referer"] = "https://localhost:8000"
+        headers["X-Title"] = "OfferTree"
+
+    endpoint = "/v1/chat/completions"
+    if text_platform == "volcengine":
+        endpoint = "/chat/completions"
+
+    payload = {
+        "model": agent._current_text_model,
+        "messages": [
+            {"role": "system", "content": gt.MATCH_SYSTEM_PROMPT},
+            {"role": "user", "content": match_prompt},
+        ],
+        "max_tokens": 2500,
+        "temperature": 0.4,
+        "stream": True,
+    }
+
+    _session_ref = s
+
+    async def match_stream():
+        full_text = ""
+        try:
+            async with httpx.AsyncClient(timeout=120) as client:
+                async with client.stream("POST", f"{base_url}{endpoint}", headers=headers, json=payload) as resp:
+                    if resp.status_code != 200:
+                        error_body = await resp.aread()
+                        yield f"\n[错误] API 返回 {resp.status_code}: {error_body.decode('utf-8', errors='replace')[:300]}"
+                        return
+                    async for line in resp.aiter_lines():
+                        line = line.strip()
+                        if not line or not line.startswith("data: "):
+                            continue
+                        data_str = line[6:]
+                        if data_str == "[DONE]":
+                            break
+                        try:
+                            chunk = json.loads(data_str)
+                            delta = chunk.get("choices", [{}])[0].get("delta", {})
+                            content = delta.get("content", "")
+                            if content:
+                                full_text += content
+                                yield content
+                        except Exception:
+                            pass
+        except Exception as e:
+            yield f"\n[错误] {e}"
+            return
+
+    # 标记这是一个流式匹配结果
+    # 使用特殊前缀让前端识别
+    return StreamingResponse(match_stream(), media_type="text/plain; charset=utf-8",
+                             headers={"X-Guided-Result": "true"})
+
+
+class GuidedFinishReq(BaseModel):
+    """用户在AI深入了解阶段自由输入后，请求生成匹配结果"""
+
+@app.post("/api/guided/finish")
+async def guided_finish():
+    """结束引导问答，生成最终匹配结果（流式）"""
+    s = _require_session()
+    return await _generate_match_result(s, "match_result")
+
+
+@app.get("/api/guided/tree")
+def guided_tree():
+    """获取当前引导树结构（供前端渲染侧边栏树）"""
+    s = _require_session()
+    tree = _get_guided_tree(s)
+    return {
+        "ok": True,
+        "tree": gt.build_tree_for_ui(tree),
+    }
+
+
+# ── 简历评估 ─────────────────────────────────
+
+class EvaluateResumeReq(BaseModel):
+    resume_text: str
+    target_position: str = ""
+
+@app.post("/api/evaluate_resume")
+async def evaluate_resume(req: EvaluateResumeReq):
+    """评估简历与目标岗位的匹配度，返回评估结果和优化建议"""
+    s = _require_session()
+
+    api_key = agent._sanitize_api_key(agent._get_text_api_key())
+    text_platform = agent._current_text_platform
+    config = agent.PLATFORMS[text_platform]
+    base_url = config["base_url"]
+
+    if not api_key:
+        raise HTTPException(400, f"未设置 {config['name']} 的 API Key，请在设置页面配置")
+
+    target_part = f"目标岗位：{req.target_position}\n" if req.target_position else ""
+
+    eval_prompt = f"""你是一名资深HR和简历评估专家。请对以下简历进行详细评估。
+
+{target_part}简历内容：
+{req.resume_text}
+
+请从以下维度进行评估，并以结构化的方式输出：
+
+1. **整体评分**（0-100分）
+2. **匹配度分析**
+   - 技能匹配度（0-100%）
+   - 经验匹配度（0-100%）
+   - 教育背景匹配度（0-100%）
+3. **优势亮点**（列出3-5个）
+4. **不足之处**（列出3-5个）
+5. **具体优化建议**（每条建议要具体、可操作）
+6. **关键词缺失**（该岗位常见但简历中缺失的关键词）
+
+请确保评估客观、专业、有建设性。"""
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    if text_platform == "openrouter":
+        headers["HTTP-Referer"] = "https://localhost:8000"
+        headers["X-Title"] = "OfferTree"
+
+    endpoint = "/v1/chat/completions"
+    if text_platform == "volcengine":
+        endpoint = "/chat/completions"
+
+    payload = {
+        "model": agent._current_text_model,
+        "messages": [
+            {"role": "system", "content": "你是一名资深HR和简历评估专家，擅长评估简历与岗位的匹配度并给出专业优化建议。"},
+            {"role": "user", "content": eval_prompt},
+        ],
+        "max_tokens": 2048,
+        "temperature": 0.3,
+        "stream": True,
+    }
+
+    _session_ref = s
+
+    async def eval_stream():
+        full_text = ""
+        try:
+            async with httpx.AsyncClient(timeout=120) as client:
+                async with client.stream("POST", f"{base_url}{endpoint}", headers=headers, json=payload) as resp:
+                    if resp.status_code != 200:
+                        error_body = await resp.aread()
+                        yield f"\n[错误] API 返回 {resp.status_code}: {error_body.decode('utf-8', errors='replace')[:300]}"
+                        return
+                    async for line in resp.aiter_lines():
+                        line = line.strip()
+                        if not line or not line.startswith("data: "):
+                            continue
+                        data_str = line[6:]
+                        if data_str == "[DONE]":
+                            break
+                        try:
+                            chunk = json.loads(data_str)
+                            delta = chunk.get("choices", [{}])[0].get("delta", {})
+                            content = delta.get("content", "")
+                            if content:
+                                full_text += content
+                                yield content
+                        except Exception:
+                            pass
+        except Exception as e:
+            yield f"\n[错误] {e}"
+            return
+
+    return StreamingResponse(eval_stream(), media_type="text/plain; charset=utf-8")
+
+
+class EnhanceResumeReq(BaseModel):
+    resume_text: str
+    target_position: str = ""
+    weak_points: str = ""
+
+@app.post("/api/enhance_resume")
+async def enhance_resume(req: EnhanceResumeReq):
+    """根据评估结果增强简历，返回优化后的简历文本"""
+    s = _require_session()
+
+    api_key = agent._sanitize_api_key(agent._get_text_api_key())
+    text_platform = agent._current_text_platform
+    config = agent.PLATFORMS[text_platform]
+    base_url = config["base_url"]
+
+    if not api_key:
+        raise HTTPException(400, f"未设置 {config['name']} 的 API Key，请在设置页面配置")
+
+    target_part = f"目标岗位：{req.target_position}\n" if req.target_position else ""
+    weak_part = f"已知不足：{req.weak_points}\n" if req.weak_points else ""
+
+    enhance_prompt = f"""你是一名资深简历优化专家。请根据以下信息优化简历，提升通过初筛的命中率。
+
+{target_part}{weak_part}原始简历：
+{req.resume_text}
+
+请输出优化后的完整简历，要求：
+1. 针对目标岗位优化关键词，提高ATS系统通过率
+2. 量化成果描述（用数据说话）
+3. 突出与目标岗位相关的经验和技能
+4. 使用更有力的动词和描述
+5. 保持真实，不编造经历
+6. 输出完整的优化后简历（而不是只给修改建议）
+
+请直接输出优化后的简历内容，使用Markdown格式。"""
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    if text_platform == "openrouter":
+        headers["HTTP-Referer"] = "https://localhost:8000"
+        headers["X-Title"] = "OfferTree"
+
+    endpoint = "/v1/chat/completions"
+    if text_platform == "volcengine":
+        endpoint = "/chat/completions"
+
+    payload = {
+        "model": agent._current_text_model,
+        "messages": [
+            {"role": "system", "content": "你是一名资深简历优化专家，擅长根据目标岗位优化简历，提高ATS系统通过率和面试机会。"},
+            {"role": "user", "content": enhance_prompt},
+        ],
+        "max_tokens": 3000,
+        "temperature": 0.4,
+        "stream": True,
+    }
+
+    async def enhance_stream():
+        full_text = ""
+        try:
+            async with httpx.AsyncClient(timeout=120) as client:
+                async with client.stream("POST", f"{base_url}{endpoint}", headers=headers, json=payload) as resp:
+                    if resp.status_code != 200:
+                        error_body = await resp.aread()
+                        yield f"\n[错误] API 返回 {resp.status_code}: {error_body.decode('utf-8', errors='replace')[:300]}"
+                        return
+                    async for line in resp.aiter_lines():
+                        line = line.strip()
+                        if not line or not line.startswith("data: "):
+                            continue
+                        data_str = line[6:]
+                        if data_str == "[DONE]":
+                            break
+                        try:
+                            chunk = json.loads(data_str)
+                            delta = chunk.get("choices", [{}])[0].get("delta", {})
+                            content = delta.get("content", "")
+                            if content:
+                                full_text += content
+                                yield content
+                        except Exception:
+                            pass
+        except Exception as e:
+            yield f"\n[错误] {e}"
+            return
+
+    return StreamingResponse(enhance_stream(), media_type="text/plain; charset=utf-8")
+
+
+class JobMatchReq(BaseModel):
+    user_profile: str  # 用户画像：专业、爱好、技能等
+
+@app.post("/api/job_match")
+async def job_match(req: JobMatchReq):
+    """根据用户画像推荐匹配的岗位方向"""
+    s = _require_session()
+
+    api_key = agent._sanitize_api_key(agent._get_text_api_key())
+    text_platform = agent._current_text_platform
+    config = agent.PLATFORMS[text_platform]
+    base_url = config["base_url"]
+
+    if not api_key:
+        raise HTTPException(400, f"未设置 {config['name']} 的 API Key，请在设置页面配置")
+
+    match_prompt = f"""你是一名AI求职匹配专家。请根据以下用户画像，推荐最匹配的岗位方向和具体职位。
+
+用户画像：
+{req.user_profile}
+
+请输出：
+1. **推荐岗位方向**（按匹配度从高到低排列，至少3个方向）
+   每个方向包含：
+   - 岗位名称
+   - 匹配度（0-100%）
+   - 匹配原因（结合用户画像说明）
+   - 适合的具体职位举例
+
+2. **技能差距分析**
+   - 用户已具备的核心技能
+   - 需要补充的技能
+   - 推荐的学习路径
+
+3. **求职策略建议**
+   - 简历重点突出的方向
+   - 目标公司类型建议
+   - 面试准备重点
+
+请确保推荐具体、有针对性、可操作。"""
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    if text_platform == "openrouter":
+        headers["HTTP-Referer"] = "https://localhost:8000"
+        headers["X-Title"] = "OfferTree"
+
+    endpoint = "/v1/chat/completions"
+    if text_platform == "volcengine":
+        endpoint = "/chat/completions"
+
+    payload = {
+        "model": agent._current_text_model,
+        "messages": [
+            {"role": "system", "content": gt.MATCH_SYSTEM_PROMPT},
+            {"role": "user", "content": match_prompt},
+        ],
+        "max_tokens": 2500,
+        "temperature": 0.4,
+        "stream": True,
+    }
+
+    async def match_stream():
+        full_text = ""
+        try:
+            async with httpx.AsyncClient(timeout=120) as client:
+                async with client.stream("POST", f"{base_url}{endpoint}", headers=headers, json=payload) as resp:
+                    if resp.status_code != 200:
+                        error_body = await resp.aread()
+                        yield f"\n[错误] API 返回 {resp.status_code}: {error_body.decode('utf-8', errors='replace')[:300]}"
+                        return
+                    async for line in resp.aiter_lines():
+                        line = line.strip()
+                        if not line or not line.startswith("data: "):
+                            continue
+                        data_str = line[6:]
+                        if data_str == "[DONE]":
+                            break
+                        try:
+                            chunk = json.loads(data_str)
+                            delta = chunk.get("choices", [{}])[0].get("delta", {})
+                            content = delta.get("content", "")
+                            if content:
+                                full_text += content
+                                yield content
+                        except Exception:
+                            pass
+        except Exception as e:
+            yield f"\n[错误] {e}"
+            return
+
+    return StreamingResponse(match_stream(), media_type="text/plain; charset=utf-8")
+
+@app.post("/api/toggle_answer_selected")
+def toggle_answer_selected(req: ToggleAnswerSelectedReq):
+    """切换当前节点的文字回答选中状态"""
+    s = _require_session()
+    node_id = req.node_id or s["current_node"]
+    if node_id not in s["nodes"]:
+        raise HTTPException(400, f"节点 {node_id} 不存在")
+    if not s["nodes"][node_id].get("answer"):
+        raise HTTPException(400, "该节点没有文字回答")
+    new_state = sm.toggle_answer_selected(s, node_id)
+    return {"ok": True, "answer_selected": new_state}
 
 
 # ── 语音转文字 ───────────────────────────────
@@ -540,12 +1374,15 @@ def _history_for_ui(s: dict) -> list:
             "id":         n["id"],
             "user_input": n["user_input"],
             "prompt":     n["prompt"],
+            "answer":     n.get("answer", ""),
+            "answer_selected": n.get("answer_selected", False),
             "selected":   bool(selected_urls),
             "selected_count": len(selected_images),
             "selected_urls": selected_urls,
             "selected_images": selected_images,
             "selected_image": selected_image,
             "images":     len(n["images"]),
+            "image_list": [img for img in n.get("images", []) if isinstance(img, dict) and img.get("url")],
             "is_current": n["id"] == s["current_node"],
             "parent":     n["parent"],
             "attachments": attachments,
@@ -652,5 +1489,5 @@ if __name__ == "__main__":
     # 启动后自动打开浏览器
     threading.Thread(target=open_browser, daemon=True).start()
 
-    print(f"\n  ArchAI Design Studio → http://localhost:{port}\n")
+    print(f"\n  OfferTree AI求职智能匹配 → http://localhost:{port}\n")
     uvicorn.run(app, host="0.0.0.0", port=port)

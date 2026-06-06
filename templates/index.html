@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>建筑 AI 设计助手</title>
+<title>OfferTree — AI求职智能匹配</title>
 <style>
   :root {
     --bg: #0f0f10;
@@ -219,7 +219,7 @@
 
 <!-- TOP BAR -->
 <div class="topbar">
-  <span class="logo">🏗 建筑 AI 设计</span>
+  <span class="logo">🌐 OfferTree 求职智能匹配</span>
   <span class="bc-sep">·</span>
   <div class="breadcrumb" id="breadcrumb">
     <span style="color:var(--text3)">未打开项目</span>
@@ -232,7 +232,7 @@
 
 <!-- HOME / SESSIONS LIST (shown when no project open) -->
 <div class="home" id="homeView">
-  <div class="home-title">我的设计项目</div>
+  <div class="home-title">我的求职项目</div>
   <div class="sess-grid" id="sessGrid">
     <div class="sess-card new-card" onclick="showNewProjectModal()">
       <span style="font-size:20px">＋</span>
@@ -270,7 +270,7 @@
         <button class="tool-btn" onclick="exportSelected()">💾 导出选中图</button>
       </div>
       <div class="input-row">
-        <textarea id="userInput" placeholder="描述本次改进方向，例如：调整屋顶为弧形，增加绿化平台，黄昏暖光效果…"></textarea>
+        <textarea id="userInput" placeholder="描述你的求职需求，例如：我是计算机专业，想找互联网公司前端开发岗位…"></textarea>
         <button class="send-btn" id="sendBtn" onclick="doIterate()">✦ 生成</button>
       </div>
     </div>
@@ -281,7 +281,7 @@
     <div class="side-tabs">
       <button class="stab on" onclick="switchTab(this,'tTree')">状态树</button>
       <button class="stab" onclick="switchTab(this,'tHist')">历史</button>
-      <button class="stab" onclick="switchTab(this,'tStyle')">风格</button>
+      <button class="stab" onclick="switchTab(this,'tStyle')">偏好</button>
     </div>
     <div class="side-body">
       <div class="panel on" id="tTree">
@@ -298,12 +298,12 @@
         <div class="save-info" id="saveInfo">暂无</div>
       </div>
       <div class="panel" id="tStyle">
-        <div class="sec-title">风格偏好（自动学习）</div>
+        <div class="sec-title">求职偏好（自动学习）</div>
         <div id="styleList"></div>
         <div class="sec-title" style="margin-top:16px">参考图</div>
         <div id="refList"></div>
         <button class="ref-add" onclick="uploadRefImage()">＋ 上传参考图</button>
-        <div style="font-size:10px;color:var(--text3);margin-top:8px">每次选图后自动更新风格权重</div>
+        <div style="font-size:10px;color:var(--text3);margin-top:8px">每次讨论后自动更新偏好权重</div>
       </div>
     </div>
   </div>
@@ -312,11 +312,11 @@
 <!-- NEW PROJECT MODAL -->
 <div class="overlay" id="newProjModal" style="display:none">
   <div class="modal">
-    <h2>新建设计项目</h2>
+    <h2>新建求职项目</h2>
     <label>项目名称</label>
-    <input id="npName" placeholder="例：滨海办公楼 A 栋" />
-    <label>初始设计需求</label>
-    <textarea id="npInput" placeholder="例：现代简约风格商业综合体，8层，玻璃幕墙立面，俯视视角，黄昏暖光…"></textarea>
+    <input id="npName" placeholder="例：互联网求职" />
+    <label>初始需求</label>
+    <textarea id="npInput" placeholder="例：我是计算机专业大三学生，想找互联网公司前端开发实习岗位…"></textarea>
     <label>OpenAI API Key</label>
     <input id="npKey" type="password" placeholder="sk-..." />
     <div class="modal-footer">
@@ -474,7 +474,7 @@ function renderTreeNode(node) {
       <div class="tn-dot ${dotClass}"></div>
       <div>
         <div class="tn-label">${node.label}</div>
-        <div class="tn-meta">${node.node_id} · ${node.image_count} 张图${node.selected?' · 已选图':''}</div>
+        <div class="tn-meta">${node.node_id} · ${node.image_count} 个回答${node.selected?' · 已选回答':''}</div>
       </div>
     </div>
     ${node.children.length ? `<div class="tn-children">${node.children.map(renderTreeNode).join('')}</div>` : ''}
@@ -507,7 +507,7 @@ function renderHistory() {
     return `<div class="h-row ${isCur?'h-cur':''} ${isBranch?'h-branch':''}">
       <div class="h-ver">${n.node_id.toUpperCase()}</div>
       <div class="h-text">${n.user_input}</div>
-      ${n.selected_image ? `<div class="h-sel">✓ 已选图</div>` : ''}
+      ${n.selected_image ? `<div class="h-sel">✓ 已选回答</div>` : ''}
       ${isCur ? `<div style="font-size:10px;color:var(--blue);margin-top:2px">← 当前节点</div>` : ''}
     </div>`;
   }).join('');
