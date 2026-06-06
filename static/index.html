@@ -176,29 +176,66 @@ body.resizing { cursor: col-resize; user-select: none; }
 .text-display .cursor-blink { display: inline-block; width: 2px; height: 1em; background: var(--accent); animation: blink 1s step-end infinite; vertical-align: text-bottom; margin-left: 1px; }
 @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
 
-/* ── Guided Chat Styles ────────────────────── */
-.guided-chat .guided-q-block, .guided-chat .guided-a-block {
-  padding: 12px 16px; margin: 6px 12px; border-radius: 10px; max-width: 90%;
+/* ── Guided Chat Styles (微信自适应气泡) ────────────────────── */
+.guided-chat {
+  padding: 8px 14px;
+  display: flex;
+  flex-direction: column;
+}
+.guided-chat .guided-q-block,
+.guided-chat .guided-a-block {
+  padding: 9px 13px;
+  margin: 2px 0;
+  border-radius: 16px;
+  max-width: 75%;
+  width: fit-content;
+  border: none;
+  box-shadow: none;
+  word-break: break-word;
 }
 .guided-chat .guided-q-block {
-  background: var(--bg3); border: 1px solid var(--line); margin-right: auto;
+  background: var(--bg3);
+  align-self: flex-start;
+  border-radius: 16px 16px 16px 4px;
 }
 .guided-chat .guided-q-block.guided-current {
-  border-color: var(--accent); box-shadow: 0 0 0 1px var(--acl);
+  background: var(--bg4);
 }
 .guided-chat .guided-q-block.guided-result {
-  border-color: var(--green); box-shadow: 0 0 0 1px var(--greenl); max-width: 95%;
+  max-width: 95%;
+  width: auto;
+  background: var(--bg3);
+  border: none;
+  border-left: 2px solid var(--green);
+  border-radius: 16px;
 }
 .guided-chat .guided-a-block {
-  background: var(--acl); border: 1px solid rgba(200,169,110,0.3); margin-left: auto; text-align: right;
+  background: rgba(200,169,110,0.10);
+  align-self: flex-end;
+  border-radius: 16px 16px 4px 16px;
+  text-align: left;
+}
+.guided-chat .guided-welcome {
+  background: transparent;
+  border: none;
+  text-align: center;
+  margin: 10px auto;
+  max-width: 100%;
+  width: auto;
+  border-radius: 0;
+}
+.guided-chat .guided-welcome .guided-q-text {
+  color: var(--muted);
+  font-size: 13px;
+  opacity: 0.8;
 }
 .guided-ai-label, .guided-user-label {
-  font-size: 10px; font-weight: 600; margin-bottom: 4px; opacity: 0.6; text-transform: uppercase; letter-spacing: 0.5px;
+  display: none;
 }
-.guided-ai-label { color: var(--accent); }
-.guided-user-label { color: var(--text); }
 .guided-q-text, .guided-a-text {
-  font-size: 14px; line-height: 1.6; color: var(--text);
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text);
 }
 .guided-result-text {
   font-size: 14px; line-height: 1.7; color: var(--text); text-align: left;
@@ -221,14 +258,14 @@ body.resizing { cursor: col-resize; user-select: none; }
 }
 /* ── Guided Sidebar Tree ─────────────────────── */
 .gtree-node { margin-left: 0; }
-.gtree-node .gtree-node { margin-left: 16px; }
+.gtree-node .gtree-node { margin-left: 14px; }
 .gtree-row {
-  display: flex; align-items: flex-start; padding: 4px 6px; border-radius: 6px;
-  cursor: pointer; transition: background 0.15s; margin-bottom: 2px; gap: 6px;
+  display: flex; align-items: flex-start; padding: 3px 6px; border-radius: 6px;
+  cursor: pointer; transition: background 0.15s; margin-bottom: 1px; gap: 6px;
 }
 .gtree-row:hover { background: var(--bg3); }
 .gtree-dot {
-  width: 8px; height: 8px; border-radius: 50%; margin-top: 5px; flex-shrink: 0;
+  width: 7px; height: 7px; border-radius: 50%; margin-top: 5px; flex-shrink: 0;
   background: var(--line2); transition: background 0.2s;
 }
 .gtree-dot.on-path { background: var(--accent); }
@@ -238,13 +275,25 @@ body.resizing { cursor: col-resize; user-select: none; }
 .gtree-label {
   font-size: 12px; line-height: 1.4; color: var(--text); word-break: break-word;
 }
-.gtree-label .gtree-q { color: var(--dim); font-size: 11px; display: block; margin-bottom: 2px; }
+.gtree-label .gtree-q { color: var(--dim); font-size: 11px; display: block; margin-bottom: 1px; }
 .gtree-label .gtree-a { color: var(--text); font-weight: 500; }
-.gtree-label .gtree-opt-text { color: var(--dim); font-size: 12px; }
-.gtree-label .gtree-opt-text.active { color: var(--accent); font-weight: 600; }
-.gtree-label .gtree-opt-text.custom-opt { font-style: italic; }
+.gtree-label .gtree-opt-text { color: var(--dim); font-size: 11px; }
+.gtree-label .gtree-opt-text.active { color: var(--accent); font-weight: 500; }
+.gtree-label .gtree-opt-text.custom-opt { font-style: italic; opacity: 0.8; }
+/* 多选时选项更紧凑 */
+.gtree-opt-compact .gtree-row {
+  padding: 2px 6px;
+  margin-bottom: 0;
+}
+.gtree-opt-compact .gtree-dot {
+  width: 6px; height: 6px; margin-top: 4px;
+}
+.gtree-opt-compact .gtree-label .gtree-opt-text {
+  font-size: 11px;
+}
+/* 多选汇聚连接 - 隐藏曲线，仅保留缩进 */
 .gtree-multi-connector {
-  margin-left: 14px; border-left: 2px solid var(--accent); margin-top: -2px; margin-bottom: 2px;
+  margin-left: 14px;
 }
 .img-grid { display: grid; gap: 10px; }
 .g1 { grid-template-columns: 1fr; }
@@ -1256,7 +1305,7 @@ function renderGuidedChat() {
   let html = '';
 
   // 欢迎消息
-  html += `<div class="guided-q-block">
+  html += `<div class="guided-q-block guided-welcome">
     <div class="guided-q-text">你好，我是 OfferTree，咨询求职问题，欢迎提问！</div>
   </div>`;
 
@@ -1267,7 +1316,6 @@ function renderGuidedChat() {
       <div class="guided-q-text">${escapeHtml(ga.question)}</div>
     </div>`;
     html += `<div class="guided-a-block">
-      <div class="guided-user-label"><i class="ti ti-user"></i></div>
       <div class="guided-a-text">${escapeHtml(ga.answer)}</div>
     </div>`;
   }
@@ -1283,7 +1331,7 @@ function showGuidedQuestion(question, options, inputType, multiSelect, maxSelect
   let html = '';
 
   // 欢迎消息
-  html += `<div class="guided-q-block">
+  html += `<div class="guided-q-block guided-welcome">
     <div class="guided-q-text">你好，我是 OfferTree，咨询求职问题，欢迎提问！</div>
   </div>`;
 
@@ -1294,7 +1342,6 @@ function showGuidedQuestion(question, options, inputType, multiSelect, maxSelect
       <div class="guided-q-text">${escapeHtml(ga.question)}</div>
     </div>`;
     html += `<div class="guided-a-block">
-      <div class="guided-user-label"><i class="ti ti-user"></i></div>
       <div class="guided-a-text">${escapeHtml(ga.answer)}</div>
     </div>`;
   }
@@ -1320,13 +1367,18 @@ function showGuidedQuestion(question, options, inputType, multiSelect, maxSelect
     html += `</div>`;
   }
 
-  // 文本输入（如果是text类型或select_or_text）
-  if (inputType === 'text' || inputType === 'select_or_text' || !options || options.length === 0) {
-    const placeholder = inputType === 'text' ? '请输入你的回答…' : '或者自己输入…';
+  // 文本输入
+  const hasOptions = options && options.length > 0;
+  const isOpenQuestion = !hasOptions; // 开放式问题（无选项）
+  if (!hasOptions || inputType === 'text' || inputType === 'select_or_text') {
+    const placeholder = isOpenQuestion ? '请输入你的回答…' : '或者自己输入…';
+    const inputStyle = isOpenQuestion
+      ? 'flex:1;padding:10px 12px;border-radius:8px;border:1px solid var(--line2);background:var(--bg3);color:var(--text);font-size:13px;font-family:var(--sans);outline:none;min-height:40px'
+      : 'flex:1;padding:8px 12px;border-radius:6px;border:1px solid var(--line2);background:var(--bg3);color:var(--text);font-size:13px;font-family:var(--sans);outline:none';
     html += `<div class="guided-text-input">
       <div style="display:flex;gap:6px;margin-top:8px">
         <input type="text" id="guidedTextInput" placeholder="${placeholder}"
-          style="flex:1;padding:8px 12px;border-radius:6px;border:1px solid var(--line2);background:var(--bg3);color:var(--text);font-size:13px;font-family:var(--sans);outline:none"
+          style="${inputStyle}"
           onkeydown="if(event.key==='Enter'){submitGuidedText()}" />
         <button onclick="submitGuidedText()" style="padding:8px 16px;border-radius:6px;background:var(--accent);color:#000;font-weight:600;font-size:12px;cursor:pointer;border:none">发送</button>
       </div>
@@ -1355,7 +1407,7 @@ function showGuidedResultStreaming(partialText) {
   let html = '';
 
   // 欢迎消息
-  html += `<div class="guided-q-block">
+  html += `<div class="guided-q-block guided-welcome">
     <div class="guided-q-text">你好，我是 OfferTree，咨询求职问题，欢迎提问！</div>
   </div>`;
 
@@ -1366,7 +1418,6 @@ function showGuidedResultStreaming(partialText) {
       <div class="guided-q-text">${escapeHtml(ga.question)}</div>
     </div>`;
     html += `<div class="guided-a-block">
-      <div class="guided-user-label"><i class="ti ti-user"></i></div>
       <div class="guided-a-text">${escapeHtml(ga.answer)}</div>
     </div>`;
   }
@@ -1392,7 +1443,7 @@ function showGuidedResultFinal(text) {
   let html = '';
 
   // 欢迎消息
-  html += `<div class="guided-q-block">
+  html += `<div class="guided-q-block guided-welcome">
     <div class="guided-q-text">你好，我是 OfferTree，咨询求职问题，欢迎提问！</div>
   </div>`;
 
@@ -1402,7 +1453,6 @@ function showGuidedResultFinal(text) {
       <div class="guided-q-text">${escapeHtml(ga.question)}</div>
     </div>`;
     html += `<div class="guided-a-block">
-      <div class="guided-user-label"><i class="ti ti-user"></i></div>
       <div class="guided-a-text">${escapeHtml(ga.answer)}</div>
     </div>`;
   }
@@ -1631,11 +1681,11 @@ function renderGuidedTree() {
   _renderTreeNode(container, guidedTree);
 }
 
-function _renderTreeNode(container, node) {
+function _renderTreeNode(container, node, isCompact) {
   if (!node) return;
 
   if (node.type === 'option') {
-    _renderOptionNode(container, node);
+    _renderOptionNode(container, node, isCompact);
   } else {
     _renderQuestionNode(container, node);
   }
@@ -1667,14 +1717,14 @@ function _renderQuestionNode(container, node) {
 
   div.appendChild(row);
 
-  // 渲染选项子节点
+  // 渲染选项子节点（多选时更紧凑）
   if (node.children && node.children.length > 0) {
     node.children.forEach(optNode => {
-      _renderTreeNode(div, optNode);
+      _renderTreeNode(div, optNode, node.multi_select);
     });
   }
 
-  // 多选时，渲染 multi_next（被选中的选项连接到下一题）
+  // 多选时，渲染 multi_next（被选中的选项通过曲线连接到下一题）
   if (node.multi_next) {
     const connector = document.createElement('div');
     connector.className = 'gtree-multi-connector';
@@ -1685,9 +1735,9 @@ function _renderQuestionNode(container, node) {
   container.appendChild(div);
 }
 
-function _renderOptionNode(container, node) {
+function _renderOptionNode(container, node, isCompact) {
   const div = document.createElement('div');
-  div.className = 'gtree-node';
+  div.className = 'gtree-node' + (isCompact ? ' gtree-opt-compact' : '');
   div.setAttribute('data-id', node.id);
 
   const row = document.createElement('div');
@@ -1712,7 +1762,7 @@ function _renderOptionNode(container, node) {
 
   div.appendChild(row);
 
-  // 选中的选项展开子树（下一题）
+  // 选中的选项展开子树（下一题）—— 仅单选时
   if (node.selected && node.children && node.children.length > 0) {
     node.children.forEach(child => {
       _renderTreeNode(div, child);
